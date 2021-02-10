@@ -51,9 +51,14 @@ class GraphConvolution(nn.Module):
         self.n_in  = n_in
         self.n_out = n_out
         self.linear = nn.Linear(n_in,  n_out)
+        self.offset = nn.Parameter(torch.zeros(n_out))
+        self.scale = nn.Parameter(torch.ones(n_out))
     def forward(self, x, adj):
         out = self.linear(x)
-        return F.elu(torch.spmm(adj, out))
+        out = F.elu(torch.spmm(adj, out))
+        mean = out.mean(dim=1).view(out.shape[0],1)
+        var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
+        return (out - mean) * self.scale * torch.rsqrt(var) + self.offset
 
 
 class GCN(nn.Module):
