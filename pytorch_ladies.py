@@ -54,8 +54,8 @@ class GraphConvolution(nn.Module):
         self.offset = nn.Parameter(torch.zeros(n_out))
         self.scale = nn.Parameter(torch.ones(n_out))
     def forward(self, x, adj):
-        out = self.linear(x)
-        out = F.elu(torch.spmm(adj, out))
+        out = torch.spmm(adj, x)
+        out = F.elu(self.linear(out))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
         return (out - mean) * self.scale * torch.rsqrt(var) + self.offset
