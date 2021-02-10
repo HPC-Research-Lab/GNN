@@ -147,7 +147,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, dept
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
         adj = U[: , after_nodes].multiply(1/p[after_nodes])
-        adjs += [sparse_mx_to_torch_sparse_tensor(row_normalize(adj))]
+        adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
@@ -242,7 +242,7 @@ jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat
 all_res = []
 for oiter in range(5):
     encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, layers=args.n_layers, dropout = 0.2).to(device)
-    susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.5, inp = feat_data.shape[1])
+    susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.0, inp = feat_data.shape[1])
     susage.to(device)
 
     optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
