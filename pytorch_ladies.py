@@ -20,17 +20,17 @@ parser = argparse.ArgumentParser(description='Training GCN on Cora/CiteSeer/PubM
 '''
     Dataset arguments
 '''
-parser.add_argument('--dataset', type=str, default='reddit',
-                    help='Dataset name: Cora/CiteSeer/PubMed/Reddit')
+parser.add_argument('--dataset', type=str, default='data/ppi',
+                    help='Dataset name: ppi/reddit')
 parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch_size', type=int, default=64,
                     help='size of output node in a batch')
-parser.add_argument('--orders', type=str, default='1,1,0',
+parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
 parser.add_argument('--samp_num', type=int, default=4096,
                     help='Number of sampled nodes per layer')
@@ -230,8 +230,8 @@ jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat
 
 all_res = []
 for oiter in range(5):
-    encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.0).to(device)
-    susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.0, inp = feat_data.shape[1])
+    encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
+    susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
     susage.to(device)
 
     optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
