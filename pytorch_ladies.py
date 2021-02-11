@@ -30,8 +30,8 @@ parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
 parser.add_argument('--batch_size', type=int, default=128,
                     help='size of output node in a batch')
-parser.add_argument('--n_layers', type=int, default=2,
-                    help='Number of GCN layers')
+parser.add_argument('--orders', type=str, default='1,1,0',
+                    help='Layer orders')
 parser.add_argument('--samp_num', type=int, default=4096,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
@@ -46,31 +46,34 @@ args = parser.parse_args()
 
 
 class GraphConvolution(nn.Module):
-    def __init__(self, n_in, n_out, bias=True):
+    def __init__(self, n_in, n_out, order, bias=True):
         super(GraphConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
         self.linear = nn.Linear(n_in,  n_out)
         self.offset = nn.Parameter(torch.zeros(n_out))
         self.scale = nn.Parameter(torch.ones(n_out))
+        self.order = order
     def forward(self, x, adj):
-        out = torch.spmm(adj, x)
-        out = F.elu(self.linear(out))
+        feat = x
+        if self.order > 0:
+            feat = torch.spmm(adj, feat)
+        out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
         return (out - mean) * self.scale * torch.rsqrt(var) + self.offset
 
 
 class GCN(nn.Module):
-    def __init__(self, nfeat, nhid, layers, dropout):
+    def __init__(self, nfeat, nhid, orders, dropout):
         super(GCN, self).__init__()
-        self.layers = layers
+        layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConvolution(nfeat,  nhid))
+        self.gcs.append(GraphConvolution(nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConvolution(nhid,  nhid))
+            self.gcs.append(GraphConvolution(nhid,  nhid, orders[i+1]))
     def forward(self, x, adjs):
         '''
             The difference here with the original GCN implementation is that
@@ -95,39 +98,7 @@ class SuGCN(nn.Module):
 
 
 
-def fastgcn_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, depth):
-    '''
-        FastGCN_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
-                         is pre-computed based on the global degree (lap_matrix)
-    '''
-    np.random.seed(seed)
-    previous_nodes = batch_nodes
-    adjs  = []
-    #     pre-compute the sampling probability (importance) based on the global degree (lap_matrix)
-    pi = np.array(np.sum(lap_matrix.multiply(lap_matrix), axis=0))[0]
-    p = pi / np.sum(pi)
-    '''
-        Sample nodes from top to bottom, based on the pre-computed probability. Then reconstruct the adjacency matrix.
-    '''
-    for d in range(depth):
-        #     row-select the lap_matrix (U) by previously sampled nodes
-        U = lap_matrix[previous_nodes , :]
-        #     sample the next layer's nodes based on the pre-computed probability (p).
-        s_num = np.min([np.sum(p > 0), samp_num_list[d]])
-        after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
-        #     col-select the lap_matrix (U), and then devided by the sampled probability for 
-        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.         
-        adj = row_norm(U[: , after_nodes].multiply(1/p[after_nodes]))
-        #     Turn the sampled adjacency matrix into a sparse matrix. If implemented by PyG
-        #     This sparse matrix can also provide index and value.
-        adjs += [sparse_mx_to_torch_sparse_tensor(row_normalize(adj))]
-        #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
-        previous_nodes = after_nodes
-    #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
-    adjs.reverse()
-    return adjs, previous_nodes, batch_nodes
-
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, depth):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -135,10 +106,14 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, dept
     np.random.seed(seed)
     previous_nodes = batch_nodes
     adjs  = []
+    orders = orders[::-1]
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
-    for d in range(depth):
+    for d in range(len(orders)):
+        if (orders[d] == 0):
+            adjs.append(None)
+            continue
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
         #     Only use the upper layer's neighborhood to calculate the probability.
@@ -163,7 +138,7 @@ def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, dep
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
     return [mx for i in range(depth)], np.arange(num_nodes), batch_nodes
 
-def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, depth):
+def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     jobs = []
     # sample p batches for training
     idxs = torch.randperm(len(train_nodes))
@@ -174,18 +149,24 @@ def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nod
     for i in range(num_proc):
         idx = idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]
         batch_nodes = train_nodes[idx]
-        p = pool.apply_async(sampler, args=(np.random.randint(2**32 - 1), batch_nodes,                                                    samp_num_list, num_nodes, lap_matrix, depth))
+        p = pool.apply_async(sampler, args=(np.random.randint(2**32 - 1), batch_nodes,                                                    samp_num_list, num_nodes, lap_matrix, orders))
         jobs.append(p)
     
     # sample a batch with more neighbors for validation
     idx = torch.randperm(len(valid_nodes))[:args.batch_size]
     batch_nodes = valid_nodes[idx]
-    p = pool.apply_async(sampler, args=(np.random.randint(2**32 - 1), batch_nodes,                                                samp_num_list * 20, num_nodes, lap_matrix, depth))
+    p = pool.apply_async(sampler, args=(np.random.randint(2**32 - 1), batch_nodes,                                                samp_num_list * 20, num_nodes, lap_matrix, orders))
     jobs.append(p)
     return jobs
 
 def package_mxl(mxl, device):
-    return [torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device) for mx in mxl]
+    res = []
+    for mx in mxl:
+        if mx != None:
+            res.append(torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device))
+        else:
+            res.append(None)
+    return res
 
 def loss(preds, labels, sigmoid_loss, device):
         """
@@ -230,6 +211,9 @@ if args.sigmoid_loss == True:
 else:
     labels_full = torch.from_numpy(class_arr.argmax(axis=1).astype(np.int64)).to(device)
 
+orders = args.orders.split(',')
+orders = [int(t) for t in orders]
+
 
 if args.sample_method == 'ladies':
     sampler = ladies_sampler
@@ -242,11 +226,11 @@ elif args.sample_method == 'full':
 samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
 
 pool = mp.Pool(args.pool_num)
-jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, args.n_layers)
+jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders)
 
 all_res = []
 for oiter in range(5):
-    encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, layers=args.n_layers, dropout = 0.2).to(device)
+    encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.0).to(device)
     susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.0, inp = feat_data.shape[1])
     susage.to(device)
 
@@ -268,7 +252,7 @@ for oiter in range(5):
         '''
             Use CPU-GPU cooperation to reduce the overhead for sampling. (conduct sampling while training)
         '''
-        jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, len(feat_data), lap_matrix, args.n_layers)
+        jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, len(feat_data), lap_matrix, orders)
         for adjs, input_nodes, output_nodes in train_data:    
             adjs = package_mxl(adjs, device)
             optimizer.zero_grad()
