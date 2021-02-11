@@ -28,7 +28,7 @@ parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=64,
+parser.add_argument('--batch_size', type=int, default=128,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
@@ -106,12 +106,12 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     np.random.seed(seed)
     previous_nodes = batch_nodes
     adjs  = []
-    orders = orders[::-1]
+    orders1 = orders[::-1]
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
-    for d in range(len(orders)):
-        if (orders[d] == 0):
+    for d in range(len(orders1)):
+        if (orders1[d] == 0):
             adjs.append(None)
             continue
         #     row-select the lap_matrix (U) by previously sampled nodes
@@ -126,7 +126,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         after_nodes = np.unique(np.concatenate((after_nodes, batch_nodes)))
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
-        adj = U[: , after_nodes].multiply(1/p[after_nodes])
+        adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
         adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
@@ -134,9 +134,9 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     adjs.reverse()
     return adjs, previous_nodes, batch_nodes
 
-def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, depth):
+def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
-    return [mx for i in range(depth)], np.arange(num_nodes), batch_nodes
+    return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes
 
 def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     jobs = []
@@ -283,11 +283,9 @@ for oiter in range(5):
             torch.save(susage, './save/best_model.pt')
 
     
-    sys.exit(-1)
     best_model = torch.load('./save/best_model.pt')
     best_model.eval()
-    test_f1s = []
-    
+    best_model.cpu()
     '''
     If using batch sampling for inference:
     '''
@@ -303,14 +301,14 @@ for oiter in range(5):
     '''
     If using full-batch inference:
     '''
-    batch_nodes = test_nodes
-    adjs, input_nodes, output_nodes = default_sampler(np.random.randint(2**32 - 1), batch_nodes,
-                                    samp_num_list * 20, len(feat_data), lap_matrix, args.n_layers)
-    adjs = package_mxl(adjs, device)
-    output = best_model.forward(feat_data[input_nodes], adjs)[output_nodes]
-    test_f1s = [f1_score(output.argmax(dim=1).cpu(), labels[output_nodes].cpu(), average='micro')]
+    adjs, input_nodes, output_nodes = default_sampler(None, valid_nodes,
+                                    None, len(feat_data), lap_matrix, orders)
+    adjs = package_mxl(adjs, 'cpu')
+    output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs)[output_nodes]
+    pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
+    test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
     
-    print('Iteration: %d, Test F1: %.3f' % (oiter, np.average(test_f1s)))
+    print('Test F1: %.3f' % (test_f1))
 
 '''
     Visualize the train-test curve
