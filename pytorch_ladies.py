@@ -118,6 +118,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         U = lap_matrix[previous_nodes , :]
         #     Only use the upper layer's neighborhood to calculate the probability.
         pi = scipy.sparse.linalg.norm(U, ord=0, axis=0)
+        #pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
         s_num = np.min([np.sum(p > 0), samp_num_list[d]])
         #     sample the next layer's nodes based on the adaptively probability (p).
