@@ -28,7 +28,7 @@ parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch_size', type=int, default=4096,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
@@ -123,7 +123,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     sample the next layer's nodes based on the adaptively probability (p).
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
         #     Add output nodes for self-loop
-        after_nodes = np.unique(np.concatenate((after_nodes, batch_nodes)))
+        #after_nodes = np.unique(np.concatenate((after_nodes, batch_nodes)))
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
@@ -138,26 +138,23 @@ def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, ord
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
     return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes
 
-def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders):
-    jobs = []
-    # sample p batches for training
-    idxs = torch.randperm(len(train_nodes))
-    num_proc = len(train_nodes) // args.batch_size
-    if (len(train_nodes) % args.batch_size):
-        num_proc += 1
-
-    for i in range(num_proc):
-        idx = idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]
-        batch_nodes = train_nodes[idx]
-        p = pool.apply_async(sampler, args=(np.random.randint(2**32 - 1), batch_nodes,                                                    samp_num_list, num_nodes, lap_matrix, orders))
-        jobs.append(p)
-    
-    # sample a batch with more neighbors for validation
-    idx = torch.randperm(len(valid_nodes))[:args.batch_size]
-    batch_nodes = valid_nodes[idx]
-    p = pool.apply_async(sampler, args=(np.random.randint(2**32 - 1), batch_nodes,                                                samp_num_list * 20, num_nodes, lap_matrix, orders))
-    jobs.append(p)
-    return jobs
+def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train'):
+    if mode == 'train':
+        # sample p batches for training
+        idxs = torch.randperm(len(train_nodes))
+        num_batches = len(train_nodes) // args.batch_size
+        if (len(train_nodes) % args.batch_size):
+            num_batches += 1
+        
+        for i in range(num_batches):
+            idx = idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]
+            batch_nodes = train_nodes[idx]
+            yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders)
+    elif mode == 'val':
+        # sample a batch with more neighbors for validation
+        idx = torch.randperm(len(valid_nodes))[:args.batch_size]
+        batch_nodes = valid_nodes[idx]
+        yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders)
 
 def package_mxl(mxl, device):
     res = []
@@ -225,9 +222,6 @@ elif args.sample_method == 'full':
 
 samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
 
-pool = mp.Pool(args.pool_num)
-jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders)
-
 all_res = []
 for oiter in range(5):
     encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
@@ -244,15 +238,8 @@ for oiter in range(5):
     for epoch in np.arange(args.epoch_num):
         susage.train()
         train_losses = []
-        train_data = [job.get() for job in jobs[:-1]]
-        valid_data = jobs[-1].get()
-        pool.close()
-        pool.join()
-        pool = mp.Pool(args.pool_num)
-        '''
-            Use CPU-GPU cooperation to reduce the overhead for sampling. (conduct sampling while training)
-        '''
-        jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, len(feat_data), lap_matrix, orders)
+
+        train_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
         for adjs, input_nodes, output_nodes in train_data:    
             adjs = package_mxl(adjs, device)
             optimizer.zero_grad()
@@ -268,21 +255,23 @@ for oiter in range(5):
             times += [time.time() - t1]
             train_losses += [loss_train.detach().tolist()]
             del loss_train
+        
+        
         susage.eval()
-        adjs, input_nodes, output_nodes = valid_data
-        adjs = package_mxl(adjs, device)
-        output = susage.forward(feat_data[input_nodes], adjs)
-        if args.sample_method == 'full':
-            output = output[output_nodes]
-        pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-        loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
-        valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-        print(("Epoch: %d (%.1fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, np.sum(times), np.average(train_losses), loss_valid, valid_f1))
-        if valid_f1 > best_val + 1e-2:
-            best_val = valid_f1
-            torch.save(susage, './save/best_model.pt')
+        val_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
+        for adjs, input_nodes, output_nodes in val_data:
+            adjs = package_mxl(adjs, device)
+            output = susage.forward(feat_data[input_nodes], adjs)
+            if args.sample_method == 'full':
+                output = output[output_nodes]
+            pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
+            loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
+            valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
+            print(("Epoch: %d (%.1fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, np.sum(times), np.average(train_losses), loss_valid, valid_f1))
+            if valid_f1 > best_val + 1e-2:
+                best_val = valid_f1
+                torch.save(susage, './save/best_model.pt')
 
-    
     best_model = torch.load('./save/best_model.pt')
     best_model.eval()
     best_model.cpu()
