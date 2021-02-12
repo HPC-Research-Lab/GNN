@@ -32,7 +32,7 @@ parser.add_argument('--batch_size', type=int, default=128,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
-parser.add_argument('--samp_num', type=int, default=8192,
+parser.add_argument('--samp_num', type=int, default=4096,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
                     help='Sampled Algorithms: ladies/fastgcn/full')
@@ -54,11 +54,10 @@ class GraphConvolution(nn.Module):
         self.offset = nn.Parameter(torch.zeros(n_out))
         self.scale = nn.Parameter(torch.ones(n_out))
         self.order = order
-    def forward(self, x, adj, sampled_nodes):
+    def forward(self, x, adj):
         feat = x
         if self.order > 0:
             feat = torch.spmm(adj, feat)
-            feat = torch.cat([x[sampled_nodes], feat], 1)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
@@ -71,17 +70,17 @@ class GCN(nn.Module):
         layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConvolution((1+orders[0])*nfeat,  nhid, orders[0]))
+        self.gcs.append(GraphConvolution(nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConvolution((1+orders[i+1])*nhid,  nhid, orders[i+1]))
-    def forward(self, x, adjs, sampled_nodes):
+            self.gcs.append(GraphConvolution(nhid,  nhid, orders[i+1]))
+    def forward(self, x, adjs):
         '''
             The difference here with the original GCN implementation is that
             we will receive different adjacency matrix for different layer.
         '''
         for idx in range(len(self.gcs)):
-            x = self.dropout(self.gcs[idx](x, adjs[idx], sampled_nodes[idx]))
+            x = self.dropout(self.gcs[idx](x, adjs[idx]))
         return x
 
 class SuGCN(nn.Module):
@@ -90,8 +89,8 @@ class SuGCN(nn.Module):
         self.encoder = encoder
         self.dropout = nn.Dropout(dropout)
         self.linear  = nn.Linear(self.encoder.nhid, num_classes)
-    def forward(self, feat, adjs, sampled_nodes):
-        x = self.encoder(feat, adjs, sampled_nodes)
+    def forward(self, feat, adjs):
+        x = self.encoder(feat, adjs)
         x = F.normalize(x, p=2, dim=1)
         x = self.dropout(x)
         x = self.linear(x)
@@ -108,18 +107,15 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     previous_nodes = batch_nodes
     adjs  = []
     orders1 = orders[::-1]
-    sampled_nodes = []
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
     for d in range(len(orders1)):
         if (orders1[d] == 0):
             adjs.append(None)
-            sampled_nodes.append(None)
             continue
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
-        print(np.sum(lap_matrix[previous_nodes,previous_nodes]))
         #     Only use the upper layer's neighborhood to calculate the probability.
         pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
@@ -127,22 +123,20 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     sample the next layer's nodes based on the adaptively probability (p).
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
         #     Add output nodes for self-loop
-        after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
+        after_nodes = np.unique(np.concatenate((after_nodes, batch_nodes)))
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
-        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.  
+        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
         adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
-        sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
     adjs.reverse()
-    sampled_nodes.reverse()
-    return adjs, previous_nodes, batch_nodes, sampled_nodes
+    return adjs, previous_nodes, batch_nodes
 
 def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
-    return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes, [torch.from_numpy(np.arange(num_nodes).astype(np.int64)) for i in orders]
+    return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes
 
 def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     jobs = []
@@ -207,7 +201,7 @@ print(args.dataset, args.sample_method)
 adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = load_data(args.dataset)
 
 
-lap_matrix = row_normalize(adj_matrix)
+lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
 feat_data = torch.FloatTensor(feat_data).to(device)
 print('sigmoid_loss: ', args.sigmoid_loss)
 print('batch_size: ', args.batch_size)
@@ -235,7 +229,7 @@ pool = mp.Pool(args.pool_num)
 jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders)
 
 all_res = []
-for oiter in range(1):
+for oiter in range(5):
     encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
     susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
     susage.to(device)
@@ -259,12 +253,12 @@ for oiter in range(1):
             Use CPU-GPU cooperation to reduce the overhead for sampling. (conduct sampling while training)
         '''
         jobs = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, len(feat_data), lap_matrix, orders)
-        for adjs, input_nodes, output_nodes, sampled_nodes in train_data:    
+        for adjs, input_nodes, output_nodes in train_data:    
             adjs = package_mxl(adjs, device)
             optimizer.zero_grad()
             t1 = time.time()
             susage.train()
-            output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
+            output = susage.forward(feat_data[input_nodes], adjs)
             if args.sample_method == 'full':
                 output = output[output_nodes]
             loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
@@ -275,9 +269,9 @@ for oiter in range(1):
             train_losses += [loss_train.detach().tolist()]
             del loss_train
         susage.eval()
-        adjs, input_nodes, output_nodes, sampled_nodes = valid_data
+        adjs, input_nodes, output_nodes = valid_data
         adjs = package_mxl(adjs, device)
-        output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
+        output = susage.forward(feat_data[input_nodes], adjs)
         if args.sample_method == 'full':
             output = output[output_nodes]
         pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -307,10 +301,10 @@ for oiter in range(1):
     '''
     If using full-batch inference:
     '''
-    adjs, input_nodes, output_nodes, sampled_nodes = default_sampler(None, valid_nodes,
+    adjs, input_nodes, output_nodes = default_sampler(None, valid_nodes,
                                     None, len(feat_data), lap_matrix, orders)
     adjs = package_mxl(adjs, 'cpu')
-    output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs, sampled_nodes)[output_nodes]
+    output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs)[output_nodes]
     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
     test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
     
