@@ -28,7 +28,7 @@ parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=4096,
+parser.add_argument('--batch_size', type=int, default=512,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
@@ -117,7 +117,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
         #     Only use the upper layer's neighborhood to calculate the probability.
-        pi = np.array(np.sum(U.multiply(U), axis=0))[0]
+        pi = scipy.sparse.linalg.norm(U, ord=0, axis=0)
         p = pi / np.sum(pi)
         s_num = np.min([np.sum(p > 0), samp_num_list[d]])
         #     sample the next layer's nodes based on the adaptively probability (p).
