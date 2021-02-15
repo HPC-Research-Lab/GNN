@@ -98,11 +98,12 @@ class SuGCN(nn.Module):
 
 
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time=[]):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
     '''
+    t1 = time.time()
     np.random.seed(seed)
     previous_nodes = batch_nodes
     adjs  = []
@@ -133,13 +134,15 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
     adjs.reverse()
+    if len(sampling_time) == 1:
+        sampling_time[0] += time.time() - t1
     return adjs, previous_nodes, batch_nodes
 
 def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
     return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes
 
-def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train'):
+def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train', sampling_time = []):
     if mode == 'train':
         # sample p batches for training
         idxs = torch.randperm(len(train_nodes))
@@ -150,7 +153,7 @@ def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, la
         for i in range(num_batches):
             idx = idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]
             batch_nodes = train_nodes[idx]
-            yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders)
+            yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time)
     elif mode == 'val':
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
@@ -223,7 +226,6 @@ elif args.sample_method == 'full':
 
 samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
 
-all_res = []
 for oiter in range(1):
     encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
     susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
@@ -233,16 +235,19 @@ for oiter in range(1):
     best_val = 0
     best_tst = -1
     cnt = 0
-    times = []
-    res   = []
+    execution_time = 0.0
+    sampling_time = [0.0]
+    #data_transfer_time = 0.0
     print('-' * 10)
     for epoch in np.arange(args.epoch_num):
         susage.train()
         train_losses = []
 
-        train_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
+        train_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train', sampling_time=sampling_time)
         for adjs, input_nodes, output_nodes in train_data:    
+            #t0 = time.time()
             adjs = package_mxl(adjs, device)
+            #data_transfer_time += time.time() -  t0
             optimizer.zero_grad()
             t1 = time.time()
             susage.train()
@@ -253,7 +258,7 @@ for oiter in range(1):
             loss_train.backward()
             torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
             optimizer.step()
-            times += [time.time() - t1]
+            execution_time += time.time() - t1
             train_losses += [loss_train.detach().tolist()]
             del loss_train
         
@@ -268,7 +273,7 @@ for oiter in range(1):
             pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
             loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
             valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-            print(("Epoch: %d (%.1fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, np.sum(times), np.average(train_losses), loss_valid, valid_f1))
+            print(("Epoch: %d (%.1fs)(%.1fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, sampling_time[0], execution_time, np.average(train_losses), loss_valid, valid_f1))
             if valid_f1 > best_val + 1e-2:
                 best_val = valid_f1
                 torch.save(susage, './save/best_model.pt')
@@ -299,13 +304,4 @@ for oiter in range(1):
     test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
     
     print('Test F1: %.3f' % (test_f1))
-
-'''
-    Visualize the train-test curve
-'''
-
-# dt = pd.DataFrame(all_res, columns=['f1-score', 'batch', 'type'])
-# sb.lineplot(data = dt, x='batch', y='f1-score', hue='type')
-# plt.legend(loc='lower right')
-# plt.show()
 
