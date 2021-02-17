@@ -8,6 +8,7 @@ import argparse
 import scipy
 import multiprocessing as mp
 from sklearn import metrics
+import custom_ops
 
 
 import warnings
@@ -28,11 +29,11 @@ parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=128,
+parser.add_argument('--batch_size', type=int, default=2048,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
-parser.add_argument('--samp_num', type=int, default=2048,
+parser.add_argument('--samp_num', type=int, default=16384,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
                     help='Sampled Algorithms: ladies/fastgcn/full')
@@ -57,7 +58,7 @@ class GraphConvolution(nn.Module):
     def forward(self, x, adj):
         feat = x
         if self.order > 0:
-            feat = torch.spmm(adj, feat)
+            feat = custom_ops.spmm(adj, feat)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
@@ -192,116 +193,119 @@ def calc_f1(y_true, y_pred,is_sigmoid):
     return metrics.f1_score(y_true, y_pred, average="micro"), metrics.f1_score(y_true, y_pred, average="macro")
 
 
-if args.cuda != -1:
-    device = torch.device("cuda:" + str(args.cuda))
-else:
-    device = torch.device("cpu")
-    
-    
-print(args.dataset, args.sample_method)
-adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = load_data(args.dataset)
+
+if __name__ == "__main__":
+    if args.cuda != -1:
+        device = torch.device("cuda:" + str(args.cuda))
+    else:
+        device = torch.device("cpu")
+        
+        
+    print(args.dataset, args.sample_method)
+    adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = load_data(args.dataset)
 
 
-lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
-feat_data = torch.FloatTensor(feat_data).to(device)
-print('sigmoid_loss: ', args.sigmoid_loss)
-print('batch_size: ', args.batch_size)
-print('num batch per epoch: ', len(train_nodes) // args.batch_size)
-if args.sigmoid_loss == True:
-    labels_full = torch.from_numpy(class_arr).to(device)
-else:
-    labels_full = torch.from_numpy(class_arr.argmax(axis=1).astype(np.int64)).to(device)
+    lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
+    feat_data = torch.FloatTensor(feat_data).to(device)
+    print('sigmoid_loss: ', args.sigmoid_loss)
+    print('batch_size: ', args.batch_size)
+    print('num batch per epoch: ', len(train_nodes) // args.batch_size)
+    if args.sigmoid_loss == True:
+        labels_full = torch.from_numpy(class_arr).to(device)
+    else:
+        labels_full = torch.from_numpy(class_arr.argmax(axis=1).astype(np.int64)).to(device)
 
-orders = args.orders.split(',')
-orders = [int(t) for t in orders]
-
-
-if args.sample_method == 'ladies':
-    sampler = ladies_sampler
-elif args.sample_method == 'fastgcn':
-    sampler = fastgcn_sampler
-elif args.sample_method == 'full':
-    sampler = default_sampler
+    orders = args.orders.split(',')
+    orders = [int(t) for t in orders]
 
 
-samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
+    if args.sample_method == 'ladies':
+        sampler = ladies_sampler
+    elif args.sample_method == 'fastgcn':
+        sampler = fastgcn_sampler
+    elif args.sample_method == 'full':
+        sampler = default_sampler
 
-for oiter in range(1):
-    encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
-    susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
-    susage.to(device)
 
-    optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
-    best_val = 0
-    best_tst = -1
-    cnt = 0
-    execution_time = 0.0
-    sampling_time = [0.0]
-    #data_transfer_time = 0.0
-    print('-' * 10)
-    for epoch in np.arange(args.epoch_num):
-        susage.train()
-        train_losses = []
+    samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
 
-        train_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train', sampling_time=sampling_time)
-        for adjs, input_nodes, output_nodes in train_data:    
-            #t0 = time.time()
-            adjs = package_mxl(adjs, device)
-            #data_transfer_time += time.time() -  t0
-            optimizer.zero_grad()
-            t1 = time.time()
+    for oiter in range(1):
+        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
+        susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
+        susage.to(device)
+
+        optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
+        best_val = 0
+        best_tst = -1
+        cnt = 0
+        execution_time = 0.0
+        back_time = 0.0
+        sampling_time = [0.0]
+        #data_transfer_time = 0.0
+        print('-' * 10)
+        for epoch in np.arange(args.epoch_num):
             susage.train()
-            output = susage.forward(feat_data[input_nodes], adjs)
-            if args.sample_method == 'full':
-                output = output[output_nodes]
-            loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
-            loss_train.backward()
-            torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
-            optimizer.step()
-            execution_time += time.time() - t1
-            train_losses += [loss_train.detach().tolist()]
-            del loss_train
-        
-        
-        susage.eval()
-        val_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
-        for adjs, input_nodes, output_nodes in val_data:
-            adjs = package_mxl(adjs, device)
-            output = susage.forward(feat_data[input_nodes], adjs)
-            if args.sample_method == 'full':
-                output = output[output_nodes]
-            pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-            loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
-            valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-            print(("Epoch: %d (%.1fs)(%.1fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, sampling_time[0], execution_time, np.average(train_losses), loss_valid, valid_f1))
-            if valid_f1 > best_val + 1e-2:
-                best_val = valid_f1
-                torch.save(susage, './save/best_model.pt')
+            train_losses = []
 
-    best_model = torch.load('./save/best_model.pt')
-    best_model.eval()
-    best_model.cpu()
-    '''
-    If using batch sampling for inference:
-    '''
-    #     for b in np.arange(len(test_nodes) // args.batch_size):
-    #         batch_nodes = test_nodes[b * args.batch_size : (b+1) * args.batch_size]
-    #         adjs, input_nodes, output_nodes = sampler(np.random.randint(2**32 - 1), batch_nodes,
-    #                                     samp_num_list * 20, len(feat_data), lap_matrix, args.n_layers)
-    #         adjs = package_mxl(adjs, device)
-    #         output = best_model.forward(feat_data[input_nodes], adjs)[output_nodes]
-    #         test_f1 = f1_score(output.argmax(dim=1).cpu(), labels[output_nodes].cpu(), average='micro')
-    #         test_f1s += [test_f1]
-    
-    '''
-    If using full-batch inference:
-    '''
-    adjs, input_nodes, output_nodes = default_sampler(None, valid_nodes,
-                                    None, len(feat_data), lap_matrix, orders)
-    adjs = package_mxl(adjs, 'cpu')
-    output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs)[output_nodes]
-    pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-    test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
-    
-    print('Test F1: %.3f' % (test_f1))
+            train_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
+            for adjs, input_nodes, output_nodes in train_data:    
+                #t0 = time.time()
+                adjs = package_mxl(adjs, device)
+                #data_transfer_time += time.time() -  t0
+                optimizer.zero_grad()
+                t1 = time.time()
+                susage.train()
+                output = susage.forward(feat_data[input_nodes], adjs)
+                if args.sample_method == 'full':
+                    output = output[output_nodes]
+                loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
+                loss_train.backward()
+                torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
+                optimizer.step()
+                execution_time += time.time() - t1
+                train_losses += [loss_train.detach().tolist()]
+                del loss_train
+            
+            
+            susage.eval()
+            val_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
+            for adjs, input_nodes, output_nodes in val_data:
+                adjs = package_mxl(adjs, device)
+                output = susage.forward(feat_data[input_nodes], adjs)
+                if args.sample_method == 'full':
+                    output = output[output_nodes]
+                pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
+                loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
+                valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
+                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_ops.spmm_forward_time, custom_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1))
+                if valid_f1 > best_val + 1e-2:
+                    best_val = valid_f1
+                    torch.save(susage, './save/best_model.pt')
+
+        best_model = torch.load('./save/best_model.pt')
+        best_model.eval()
+        best_model.cpu()
+        '''
+        If using batch sampling for inference:
+        '''
+        #     for b in np.arange(len(test_nodes) // args.batch_size):
+        #         batch_nodes = test_nodes[b * args.batch_size : (b+1) * args.batch_size]
+        #         adjs, input_nodes, output_nodes = sampler(np.random.randint(2**32 - 1), batch_nodes,
+        #                                     samp_num_list * 20, len(feat_data), lap_matrix, args.n_layers)
+        #         adjs = package_mxl(adjs, device)
+        #         output = best_model.forward(feat_data[input_nodes], adjs)[output_nodes]
+        #         test_f1 = f1_score(output.argmax(dim=1).cpu(), labels[output_nodes].cpu(), average='micro')
+        #         test_f1s += [test_f1]
+        
+        '''
+        If using full-batch inference:
+        '''
+        adjs, input_nodes, output_nodes = default_sampler(None, valid_nodes,
+                                        None, len(feat_data), lap_matrix, orders)
+        adjs = package_mxl(adjs, 'cpu')
+        output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs)[output_nodes]
+        pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
+        test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
+        
+        print('Test F1: %.3f' % (test_f1))
 
