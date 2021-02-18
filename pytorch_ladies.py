@@ -8,7 +8,7 @@ import argparse
 import scipy
 import multiprocessing as mp
 from sklearn import metrics
-import custom_ops
+import custom_sparse_ops
 
 
 import warnings
@@ -41,9 +41,27 @@ parser.add_argument('--cuda', type=int, default=0,
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
 
-
-
 args = parser.parse_args()
+
+
+def profile(idx):
+    r = idx[0].cpu()
+    c = idx[1].cpu()
+   # print(r)
+   # print(c)
+    count = {}
+    for i in range(len(r)):
+        if r[i].item() not in count:
+            count[r[i].item()] = 0
+        count[r[i].item()] += 1
+    print('r: ', sorted(count.values(), reverse=True)[0])
+
+    count2 = {}
+    for i in range(len(c)):
+        if c[i].item() not in count2:
+            count2[c[i].item()] = 0
+        count2[c[i].item()] += 1
+    print('c: ', sorted(count2.values(), reverse=True)[0])
 
 
 class GraphConvolution(nn.Module):
@@ -58,7 +76,8 @@ class GraphConvolution(nn.Module):
     def forward(self, x, adj):
         feat = x
         if self.order > 0:
-            feat = custom_ops.spmm(adj, feat)
+            #profile(adj._indices())
+            feat = torch.spmm(adj, feat)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
@@ -277,7 +296,7 @@ if __name__ == "__main__":
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                 loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
                 valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_ops.spmm_forward_time, custom_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1))
+                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1))
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
                     torch.save(susage, './save/best_model.pt')
