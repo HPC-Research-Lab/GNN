@@ -122,14 +122,15 @@ def norm(l):
 def stat(l):
     return np.average(l), np.sqrt(np.var(l))
 
-def sparse_mx_to_torch_sparse_tensor(sparse_mx):
+def sparse_mx_to_coo(sparse_mx):
     """Convert a scipy sparse matrix to a torch sparse tensor."""
     sparse_mx = sparse_mx.tocoo().astype(np.float32)
     if len(sparse_mx.row) == 0 and len(sparse_mx.col) == 0:
-        indices = torch.LongTensor([[], []])
+        indices = torch.IntTensor([[], []])
     else:
         indices = torch.from_numpy(
-            np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
+            np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int32))
+        #print(indices)
     values = torch.from_numpy(sparse_mx.data)
     shape = torch.Size(sparse_mx.shape)
     return indices, values, shape

@@ -77,7 +77,7 @@ class GraphConvolution(nn.Module):
         feat = x
         if self.order > 0:
             #profile(adj._indices())
-            feat = torch.spmm(adj, feat)
+            feat = custom_sparse_ops.spmm(adj, feat)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
@@ -149,7 +149,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
-        adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
+        adjs += [sparse_mx_to_coo(adj)]
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
@@ -184,7 +184,7 @@ def package_mxl(mxl, device):
     res = []
     for mx in mxl:
         if mx != None:
-            res.append(torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device))
+            res.append((mx[0].to(device), mx[1].to(device), torch.LongTensor([mx[2][0], mx[2][1]]).to(device)))
         else:
             res.append(None)
     return res
@@ -272,7 +272,7 @@ if __name__ == "__main__":
                 adjs = package_mxl(adjs, device)
                 #data_transfer_time += time.time() -  t0
                 optimizer.zero_grad()
-                t1 = time.time()
+                t0 = time.time()
                 susage.train()
                 output = susage.forward(feat_data[input_nodes], adjs)
                 if args.sample_method == 'full':
@@ -281,7 +281,7 @@ if __name__ == "__main__":
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
                 optimizer.step()
-                execution_time += time.time() - t1
+                execution_time += time.time() - t0
                 train_losses += [loss_train.detach().tolist()]
                 del loss_train
             
