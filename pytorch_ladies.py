@@ -77,7 +77,7 @@ class GraphConvolution(nn.Module):
         feat = x
         if self.order > 0:
             #profile(adj._indices())
-            feat = torch.spmm(adj, feat)
+            feat = custom_sparse_ops.spmm(adj, feat)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
@@ -184,7 +184,7 @@ def package_mxl(mxl, device):
     res = []
     for mx in mxl:
         if mx != None:
-            res.append(torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device))
+            res.append(torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device).coalesce())
         else:
             res.append(None)
     return res
@@ -209,6 +209,7 @@ def calc_f1(y_true, y_pred,is_sigmoid):
     else:
         y_pred[y_pred > 0.5] = 1
         y_pred[y_pred <= 0.5] = 0
+        
     return metrics.f1_score(y_true, y_pred, average="micro"), metrics.f1_score(y_true, y_pred, average="macro")
 
 
