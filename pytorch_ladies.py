@@ -209,7 +209,6 @@ def calc_f1(y_true, y_pred,is_sigmoid):
     else:
         y_pred[y_pred > 0.5] = 1
         y_pred[y_pred <= 0.5] = 0
-        
     return metrics.f1_score(y_true, y_pred, average="micro"), metrics.f1_score(y_true, y_pred, average="macro")
 
 
@@ -282,6 +281,7 @@ if __name__ == "__main__":
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
                 optimizer.step()
+                torch.cuda.synchronize()
                 execution_time += time.time() - t1
                 train_losses += [loss_train.detach().tolist()]
                 del loss_train
