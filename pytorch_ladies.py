@@ -272,6 +272,7 @@ if __name__ == "__main__":
                 adjs = package_mxl(adjs, device)
                 #data_transfer_time += time.time() -  t0
                 optimizer.zero_grad()
+                torch.cuda.synchronize()
                 t1 = time.time()
                 susage.train()
                 output = susage.forward(feat_data[input_nodes], adjs)
