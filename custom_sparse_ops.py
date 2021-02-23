@@ -19,8 +19,8 @@ class SparseDenseMM(torch.autograd.Function):
     torch.cuda.synchronize()
     t1 = time.time()
     ctx.save_for_backward(mat1)
-    #output = spmm_cpp.spmm(mat1, mat2)
-    output = mat1.mm(mat2)
+    output = spmm_cpp.spmm(mat1, mat2)
+    #output = mat1.mm(mat2)
     torch.cuda.synchronize()
     spmm_forward_time += time.time() - t1
     return output
@@ -60,3 +60,13 @@ spmm = SparseDenseMM.apply
 
 #y.sum().backward()
 #print(b.grad)
+
+#from multiprocessing import Pool
+
+#def f(i, j):
+#  return i + j
+
+
+#with Pool(5) as pool:
+#  res = pool.starmap(f, [(i, i*i) for i in range(10)])
+#  print(res)

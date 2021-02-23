@@ -9,6 +9,7 @@ import scipy
 import multiprocessing as mp
 from sklearn import metrics
 import custom_sparse_ops
+from multiprocessing import Pool
 
 
 import warnings
@@ -27,6 +28,8 @@ parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
+parser.add_argument('--num_workers', type=int, default=8, 
+                    help='Number of processes for sampling')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
 parser.add_argument('--batch_size', type=int, default=2048,
@@ -118,12 +121,12 @@ class SuGCN(nn.Module):
 
 
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time=[]):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
     '''
-    t1 = time.time()
+    #t1 = time.time()
     np.random.seed(seed)
     previous_nodes = batch_nodes
     adjs  = []
@@ -154,8 +157,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
     adjs.reverse()
-    if len(sampling_time) == 1:
-        sampling_time[0] += time.time() - t1
+    #if len(sampling_time) == 1:
+     #   sampling_time[0] += time.time() - t1
     return adjs, previous_nodes, batch_nodes
 
 def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
@@ -170,10 +173,11 @@ def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, la
         if (len(train_nodes) % args.batch_size):
             num_batches += 1
         
-        for i in range(num_batches):
-            idx = idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]
-            batch_nodes = train_nodes[idx]
-            yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time)
+        for i in range(0, num_batches, args.num_workers):
+            with Pool(processes=args.num_workers) as pool:
+                samples = pool.starmap(sampler, [(np.random.randint(2**32 - 1), train_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders) for j in range(i, min(i+args.num_workers, num_batches))])
+            yield from samples
+            #sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time)
     elif mode == 'val':
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
