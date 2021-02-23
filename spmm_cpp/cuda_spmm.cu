@@ -6,9 +6,12 @@
 #include <iostream>
 #include <vector>
 
-static const int NNZ_PER_CHUNK = 32;
+static const int NNZ_PER_CHUNK = 64;
 static const int SROW_PER_TILE = 2;
 static const int LENGTH = (256 / SROW_PER_TILE);
+
+static const int THREADS_PER_BLOCK = 512;
+static const int ELEMENTS_PER_BLOCK = 1024;
 
 #define ERR_NE(X, Y)                                                           \
   do {                                                                         \
@@ -19,6 +22,13 @@ static const int LENGTH = (256 / SROW_PER_TILE);
   } while (0)
 #define CUDA_CALL(X) ERR_NE((X), cudaSuccess)
 #define CUSPARSE_CALL(X) ERR_NE((X), CUSPARSE_STATUS_SUCCESS)
+
+#define DIV(x, ts) \
+  ((x) % (ts) != 0 ? (x) / (ts) + 1 : (x) / (ts))
+
+#define LOG_MEM_BANKS 5
+
+#define CONFLICT_FREE_OFFSET(n) ((n) >> LOG_MEM_BANKS)
 
 namespace {
 void Xcoo2csr(const int *coorowind, int64_t nnz, int64_t m, int *csrrowptr) {
@@ -42,12 +52,18 @@ torch::Tensor _to_csr_int(const torch::Tensor &rowIndices, int64_t dim) {
   return csr;
 }
 
-inline int DIV(int x, int tile_size) {
-	if (x % tile_size) return x / tile_size + 1; else return x / tile_size; } 
+inline int nextPowerOfTwo(int x) {
+  int power = 1;
+  while (power < x) {
+    power *= 2;
+  }
+  return power;
+}
 
 }  // namespace
 
-__global__ void _spmm_cuda_kernel(
+// no load balancing
+__global__ void _spmm_cuda_v1_kernel(
     const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr,
     const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowidx,
     const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> colidx,
@@ -57,36 +73,63 @@ __global__ void _spmm_cuda_kernel(
     const int64_t ncols,
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> denseMat,
     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> resMat) {
-	
-	__shared__ float values_buf[SROW_PER_TILE][LENGTH];
-	__shared__ int colidx_buf[SROW_PER_TILE][LENGTH];
+  __shared__ float values_buf[SROW_PER_TILE][LENGTH];
+  __shared__ int colidx_buf[SROW_PER_TILE][LENGTH];
+
   int r = blockIdx.x * SROW_PER_TILE + threadIdx.y;
   if (r < rowptr.size(0) - 1) {
-		int c = blockIdx.y * 64 + threadIdx.x;
-		int c2 = c + 32;
+    int c = blockIdx.y * 64 + threadIdx.x;
+    int c2 = c + 32;
 
-		float pares = 0.0;
-		float pares2 = 0.0;
+    if (c2 < ((denseMat.size(1) >> 6) << 6)) {
+      float pares = 0.0;
+      float pares2 = 0.0;
 
-		for (int b=rowptr[r]; b<rowptr[r+1]; b+=LENGTH) {
-			int length = LENGTH > rowptr[r+1] - b ? rowptr[r+1] - b : LENGTH;
-			for (int i=threadIdx.x; i<length; i+=32) {
-				values_buf[threadIdx.y][i] = values[i+b];
-				colidx_buf[threadIdx.y][i] = colidx[i+b];
-			}
-			for (int k=0; k<length; k++) {
-				pares += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
-				pares2 += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
-			}
-		}
-		if (rowptr[r+1] - rowptr[r] > 0) {
-			resMat[r][c] = pares;
-			resMat[r][c2] = pares2;
-		}
+      for (int b = rowptr[r]; b < rowptr[r + 1]; b += LENGTH) {
+        int length = LENGTH > rowptr[r + 1] - b ? rowptr[r + 1] - b : LENGTH;
+        for (int i = threadIdx.x; i < length; i += 32) {
+          values_buf[threadIdx.y][i] = values[i + b];
+          colidx_buf[threadIdx.y][i] = colidx[i + b];
+        }
+        for (int k = 0; k < length; k++) {
+          pares += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
+          pares2 += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c2];
+        }
+      }
+      if (rowptr[r + 1] - rowptr[r] > 0) {
+        resMat[r][c] = pares;
+        resMat[r][c2] = pares2;
+      }
+    }
   }
 }
 
-torch::Tensor spmm_cuda(torch::Tensor sparseMat, torch::Tensor denseMat) {
+// no load balancing
+__global__ void _spmm_cuda_v1_kernel_small(
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowidx,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> colidx,
+
+    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> values,
+    const int64_t nrows,
+    const int64_t ncols,
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> denseMat,
+    torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> resMat, int col_offset) {
+  int r = blockIdx.x;
+  int c = threadIdx.x + col_offset;
+  if (c < denseMat.size(1)) {
+    float pares = 0.0;
+    for (int k = rowptr[r]; k < rowptr[r + 1]; k++) {
+      pares += values[k] * denseMat[colidx[k]][c];
+    }
+    if (rowptr[r + 1] - rowptr[r] > 0) {
+      resMat[r][c] += pares;
+    }
+  }
+}
+
+// no load balancing
+torch::Tensor spmm_cuda_v1(torch::Tensor sparseMat, torch::Tensor denseMat) {
   auto rowidx = sparseMat.indices()[0].to(at::ScalarType::Int);
   auto colidx = sparseMat.indices()[1].to(at::ScalarType::Int);
   auto values = sparseMat.values();
@@ -135,12 +178,540 @@ torch::Tensor spmm_cuda(torch::Tensor sparseMat, torch::Tensor denseMat) {
 
   //	std::cout << nbx << " " << nby << std::endl;
 
-  dim3 nthreads(32, SROW_PER_TILE);
-  dim3 nblocks(DIV(rowptr.size(0), SROW_PER_TILE), DIV(denseMat.size(1), 64));
-
   //std::cout << resMat.sizes() << std::endl;
+  if (denseMat.size(1) >= 64) {
+    dim3 nthreads_spmm(32, SROW_PER_TILE);
+    dim3 nblocks_spmm(DIV(rowptr.size(0), SROW_PER_TILE), DIV(denseMat.size(1), 64));
+    _spmm_cuda_v1_kernel<<<nblocks_spmm, nthreads_spmm>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>());
+    int remaining = denseMat.size(1) % 64;
+    if (remaining > 0)
+      _spmm_cuda_v1_kernel_small<<<rowptr.size(0) - 1, 64>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), denseMat.size(1) - remaining);
 
-  _spmm_cuda_kernel<<<nblocks, nthreads>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>());
+  } else {
+    _spmm_cuda_v1_kernel_small<<<rowptr.size(0) - 1, 64>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), 0);
+  }
+
+  return resMat;
+}
+
+// load balancing
+__global__ void _spmm_cuda_v2_kernel(
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vrowptr,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowidx,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> colidx,
+
+    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> values,
+    const int64_t nrows,
+    const int64_t ncols,
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> denseMat,
+    float *__restrict__ resMat) {
+  __shared__ float values_buf[SROW_PER_TILE][LENGTH];
+  __shared__ int colidx_buf[SROW_PER_TILE][LENGTH];
+
+  int r = blockIdx.x * SROW_PER_TILE + threadIdx.y;
+  if (r < vrowptr.size(0) - 1) {
+    int c = blockIdx.y * 64 + threadIdx.x;
+    int c2 = c + 32;
+
+    if (c2 < ((denseMat.size(1) >> 6) << 6)) {
+      float pares = 0.0;
+      float pares2 = 0.0;
+
+      for (int b = vrowptr[r]; b < vrowptr[r + 1]; b += LENGTH) {
+        int length = LENGTH > vrowptr[r + 1] - b ? vrowptr[r + 1] - b : LENGTH;
+        for (int i = threadIdx.x; i < length; i += 32) {
+          values_buf[threadIdx.y][i] = values[i + b];
+          colidx_buf[threadIdx.y][i] = colidx[i + b];
+        }
+        for (int k = 0; k < length; k++) {
+          pares += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
+          pares2 += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c2];
+        }
+      }
+      if (vrowptr[r + 1] - vrowptr[r] > 0) {
+        int oidx = rowidx[vrowptr[r]] * denseMat.size(1) + c;
+        atomicAdd(&resMat[oidx], pares);
+        atomicAdd(&resMat[oidx + 32], pares2);
+      }
+    }
+  }
+}
+
+// load balancing
+__global__ void _spmm_cuda_v2_kernel_small(
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vrowptr,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowidx,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> colidx,
+
+    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> values,
+    const int64_t nrows,
+    const int64_t ncols,
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> denseMat,
+    float *__restrict__ resMat, int col_offset) {
+  int r = blockIdx.x;
+  int c = threadIdx.x + col_offset;
+  if (c < denseMat.size(1)) {
+    float pares = 0.0;
+    for (int k = vrowptr[r]; k < vrowptr[r + 1]; k++) {
+      pares += values[k] * denseMat[colidx[k]][c];
+    }
+    if (vrowptr[r + 1] - vrowptr[r] > 0) {
+      atomicAdd(resMat + rowidx[vrowptr[r]] * denseMat.size(1) + c, pares);
+    }
+  }
+}
+
+__global__ void _calc_rowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr,
+                             const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowidx) {
+  int tid = threadIdx.x + blockIdx.x * 1024;
+  if (tid <= rowidx.size(0)) {
+    int pre = (tid == 0 ? -1 : rowidx[tid - 1]);
+    int cur = (tid == rowidx.size(0) ? rowptr.size(0) - 1 : rowidx[tid]);
+    for (int i = pre; i < cur; i++) {
+      rowptr[i + 1] = tid;
+    }
+  }
+}
+
+/*
+__global__ void _count_virtual_rows(const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr, torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowpos) {
+  __shared__ int psum[1024];
+  int tid = threadIdx.x + blockIdx.x * 1024;
+  if (tid < rowptr.size(0) - 1) {
+    psum[threadIdx.x] = DIV(rowptr[tid + 1] - rowptr[tid], NNZ_PER_CHUNK);
+    int stride = 512;
+    while (stride >= 1) {
+      if (threadIdx.x < (stride << 1) && threadIdx.x >= stride) {
+        psum[threadIdx.x - stride] += psum[threadIdx.x];
+      }
+      __syncthreads();
+      stride = (stride >> 1);
+    }
+    if (threadIdx.x == 0) atomicAdd(sum, psum[0]);
+  }
+}
+*/
+
+__global__ void _calc_vrowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vrowptr, const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowpos, const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr) {
+  int r = threadIdx.x + blockIdx.x * 1024;
+  if (r < rowptr.size(0) - 1) {
+    int j = 0;
+    for (int i = rowptr[r]; i < rowptr[r + 1]; i += NNZ_PER_CHUNK) {
+      vrowptr[rowpos[r] + j] = i;
+      j++;
+    }
+  }
+  if (r == rowptr.size(0)) {
+    vrowptr[vrowptr.size(0) - 1] = rowptr[rowptr.size(0) - 1];
+  }
+}
+
+__global__ void _prescan_arbitrary(int *__restrict__ output, int *__restrict__ input, int n, int powerOfTwo) {
+  extern __shared__ int temp[];  // allocated on invocation
+
+  int threadID = threadIdx.x;
+
+  int ai = threadID;
+  int bi = threadID + (n / 2);
+  int bankOffsetA = CONFLICT_FREE_OFFSET(ai);
+  int bankOffsetB = CONFLICT_FREE_OFFSET(bi);
+
+  if (threadID < n) {
+    temp[ai + bankOffsetA] = DIV(input[ai + 1] - input[ai], NNZ_PER_CHUNK);
+    temp[bi + bankOffsetB] = DIV(input[bi + 1] - input[bi], NNZ_PER_CHUNK);
+  } else {
+    temp[ai + bankOffsetA] = 0;
+    temp[bi + bankOffsetB] = 0;
+  }
+
+  int offset = 1;
+  for (int d = powerOfTwo >> 1; d > 0; d >>= 1)  // build sum in place up the tree
+  {
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      temp[bi] += temp[ai];
+    }
+    offset *= 2;
+  }
+
+  if (threadID == 0) {
+    temp[powerOfTwo - 1 + CONFLICT_FREE_OFFSET(powerOfTwo - 1)] = 0;  // clear the last element
+  }
+
+  for (int d = 1; d < powerOfTwo; d *= 2)  // traverse down tree & build scan
+  {
+    offset >>= 1;
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      int t = temp[ai];
+      temp[ai] = temp[bi];
+      temp[bi] += t;
+    }
+  }
+  __syncthreads();
+
+  if (threadID < n) {
+    output[ai] = temp[ai + bankOffsetA];
+    output[bi] = temp[bi + bankOffsetB];
+  }
+}
+
+__global__ void _prescan_arbitrary_real(int *__restrict__ output, int *__restrict__ input, int n, int powerOfTwo) {
+  extern __shared__ int temp[];  // allocated on invocation
+
+  int threadID = threadIdx.x;
+
+  int ai = threadID;
+  int bi = threadID + (n / 2);
+  int bankOffsetA = CONFLICT_FREE_OFFSET(ai);
+  int bankOffsetB = CONFLICT_FREE_OFFSET(bi);
+
+  if (threadID < n) {
+    temp[ai + bankOffsetA] = input[ai];
+    temp[bi + bankOffsetB] = input[bi];
+  } else {
+    temp[ai + bankOffsetA] = 0;
+    temp[bi + bankOffsetB] = 0;
+  }
+
+  int offset = 1;
+  for (int d = powerOfTwo >> 1; d > 0; d >>= 1)  // build sum in place up the tree
+  {
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      temp[bi] += temp[ai];
+    }
+    offset *= 2;
+  }
+
+  if (threadID == 0) {
+    temp[powerOfTwo - 1 + CONFLICT_FREE_OFFSET(powerOfTwo - 1)] = 0;  // clear the last element
+  }
+
+  for (int d = 1; d < powerOfTwo; d *= 2)  // traverse down tree & build scan
+  {
+    offset >>= 1;
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      int t = temp[ai];
+      temp[ai] = temp[bi];
+      temp[bi] += t;
+    }
+  }
+  __syncthreads();
+
+  if (threadID < n) {
+    output[ai] = temp[ai + bankOffsetA];
+    output[bi] = temp[bi + bankOffsetB];
+  }
+}
+
+__global__ void _prescan_large_real(int *output, int *input, int n, int *sums) {
+  extern __shared__ int temp[];
+
+  int blockID = blockIdx.x;
+  int threadID = threadIdx.x;
+  int blockOffset = blockID * n;
+
+  int ai = threadID;
+  int bi = threadID + (n / 2);
+  int bankOffsetA = CONFLICT_FREE_OFFSET(ai);
+  int bankOffsetB = CONFLICT_FREE_OFFSET(bi);
+  temp[ai + bankOffsetA] = input[blockOffset + ai];
+  temp[bi + bankOffsetB] = input[blockOffset + bi];
+
+  int offset = 1;
+  for (int d = n >> 1; d > 0; d >>= 1)  // build sum in place up the tree
+  {
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      temp[bi] += temp[ai];
+    }
+    offset *= 2;
+  }
+  __syncthreads();
+
+  if (threadID == 0) {
+    sums[blockID] = temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)];
+    temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)] = 0;
+  }
+
+  for (int d = 1; d < n; d *= 2)  // traverse down tree & build scan
+  {
+    offset >>= 1;
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      int t = temp[ai];
+      temp[ai] = temp[bi];
+      temp[bi] += t;
+    }
+  }
+  __syncthreads();
+
+  output[blockOffset + ai] = temp[ai + bankOffsetA];
+  output[blockOffset + bi] = temp[bi + bankOffsetB];
+}
+
+__global__ void _prescan_large(int *output, int *input, int n, int *sums) {
+  extern __shared__ int temp[];
+
+  int blockID = blockIdx.x;
+  int threadID = threadIdx.x;
+  int blockOffset = blockID * n;
+
+  int ai = threadID;
+  int bi = threadID + (n / 2);
+  int bankOffsetA = CONFLICT_FREE_OFFSET(ai);
+  int bankOffsetB = CONFLICT_FREE_OFFSET(bi);
+  temp[ai + bankOffsetA] = DIV(input[blockOffset + ai + 1] - input[blockOffset + ai], NNZ_PER_CHUNK);
+  temp[bi + bankOffsetB] = DIV(input[blockOffset + bi + 1] - input[blockOffset + bi], NNZ_PER_CHUNK);
+
+  int offset = 1;
+  for (int d = n >> 1; d > 0; d >>= 1)  // build sum in place up the tree
+  {
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      temp[bi] += temp[ai];
+    }
+    offset *= 2;
+  }
+  __syncthreads();
+
+  if (threadID == 0) {
+    sums[blockID] = temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)];
+    temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)] = 0;
+  }
+
+  for (int d = 1; d < n; d *= 2)  // traverse down tree & build scan
+  {
+    offset >>= 1;
+    __syncthreads();
+    if (threadID < d) {
+      int ai = offset * (2 * threadID + 1) - 1;
+      int bi = offset * (2 * threadID + 2) - 1;
+      ai += CONFLICT_FREE_OFFSET(ai);
+      bi += CONFLICT_FREE_OFFSET(bi);
+
+      int t = temp[ai];
+      temp[ai] = temp[bi];
+      temp[bi] += t;
+    }
+  }
+  __syncthreads();
+
+  output[blockOffset + ai] = temp[ai + bankOffsetA];
+  output[blockOffset + bi] = temp[bi + bankOffsetB];
+}
+
+__global__ void _add(int *output, int length, int *n) {
+  int blockID = blockIdx.x;
+  int threadID = threadIdx.x;
+  int blockOffset = blockID * length;
+
+  output[blockOffset + threadID] += n[blockID];
+}
+
+__global__ void _add(int *output, int length, int *n1, int *n2) {
+  int blockID = blockIdx.x;
+  int threadID = threadIdx.x;
+  int blockOffset = blockID * length;
+
+  output[blockOffset + threadID] += n1[blockID] + n2[blockID];
+}
+
+__global__ void _add_not_real(int *output, int length, int *n1, int *n2) {
+  int blockID = blockIdx.x;
+  int threadID = threadIdx.x;
+  int blockOffset = blockID * length;
+
+  output[blockOffset + threadID] += DIV(n1[blockID+1] - n1[blockID], NNZ_PER_CHUNK) + n2[blockID];
+}
+
+// out stores the prefix sum, in stores the rowptr
+// in is first used for calculating rowcount,
+// then, rowcount is scanned to computed out
+void scanSmallDeviceArray(int *out, int *in, int length, bool real) {
+  int powerOfTwo = nextPowerOfTwo(length);
+  if (real) {
+    _prescan_arbitrary_real<<<1, (length + 1) / 2, 2 * powerOfTwo * sizeof(int)>>>(out, in, length, powerOfTwo);
+  } else {
+    //std::cout << "here" << std::endl;
+    _prescan_arbitrary<<<1, (length + 1) / 2, 2 * powerOfTwo * sizeof(int)>>>(out, in, length, powerOfTwo);
+  }
+}
+
+void scanLargeEvenDeviceArray(int *d_out, int *d_in, int length, bool real);
+
+void scanLargeDeviceArray(int *d_out, int *d_in, int length, bool real) {
+  int remainder = length % (ELEMENTS_PER_BLOCK);
+  if (remainder == 0) {
+    //std::cout << "length: " << length << std::endl;
+    scanLargeEvenDeviceArray(d_out, d_in, length, real);
+  } else {
+    // perform a large scan on a compatible multiple of elements
+    int lengthMultiple = length - remainder;
+    //std::cout << lengthMultiple << std::endl;
+    scanLargeEvenDeviceArray(d_out, d_in, lengthMultiple, real);
+
+    // scan the remaining elements and add the (inclusive) last element of the large scan to this
+    scanSmallDeviceArray(d_out + lengthMultiple, d_in + lengthMultiple, remainder, real);
+
+    _add_not_real<<<1, remainder>>>(d_out + lengthMultiple, remainder, d_in + lengthMultiple - 1, d_out + lengthMultiple - 1);
+
+   /* int *h_out = (int *)malloc(sizeof(int) * length);
+    cudaMemcpy(h_out, d_out, sizeof(int) * length, cudaMemcpyDeviceToHost);
+    for (int i = 0; i < length; i++) {
+      std::cout << h_out[i] << std::endl;
+    }*/
+  }
+}
+
+void scanLargeEvenDeviceArray(int *d_out, int *d_in, int length, bool real) {
+  const int blocks = length / ELEMENTS_PER_BLOCK;
+  const int sharedMemArraySize = ELEMENTS_PER_BLOCK * sizeof(int);
+
+  int *d_sums, *d_incr;
+  cudaMalloc((void **)&d_sums, blocks * sizeof(int));
+  cudaMalloc((void **)&d_incr, blocks * sizeof(int));
+
+  if (real) {
+    _prescan_large_real<<<blocks, THREADS_PER_BLOCK, 2 * sharedMemArraySize>>>(d_out, d_in, ELEMENTS_PER_BLOCK, d_sums);
+
+  } else {
+    _prescan_large<<<blocks, THREADS_PER_BLOCK, 2 * sharedMemArraySize>>>(d_out, d_in, ELEMENTS_PER_BLOCK, d_sums);
+  }
+
+  const int sumsArrThreadsNeeded = (blocks + 1) / 2;
+  // std::cout << "sumArr: " << sumsArrThreadsNeeded << std::endl;
+  // int *h_sums = (int *)malloc(blocks * sizeof(int));
+  // cudaMemcpy(h_sums, d_sums, sizeof(int) * blocks, cudaMemcpyDeviceToHost);
+  // for (int i = 0; i < blocks; i++) std::cout << h_sums[i] << " ";
+  // std::cout << std::endl;
+  if (sumsArrThreadsNeeded > THREADS_PER_BLOCK) {
+    // perform a large scan on the sums arr
+    scanLargeDeviceArray(d_incr, d_sums, blocks, true);
+  } else {
+    // only need one block to scan sums arr so can use small scan
+    scanSmallDeviceArray(d_incr, d_sums, blocks, true);
+  }
+
+  // int *h_incr = (int *)malloc(blocks * sizeof(int));
+  // cudaMemcpy(h_incr, d_incr, sizeof(int) * blocks, cudaMemcpyDeviceToHost);
+  // for (int i = 0; i < blocks; i++) std::cout << h_incr[i] << " ";
+  // std::cout << std::endl;
+
+  _add<<<blocks, ELEMENTS_PER_BLOCK>>>(d_out, ELEMENTS_PER_BLOCK, d_incr);
+
+  cudaFree(d_sums);
+  cudaFree(d_incr);
+}
+
+// load balancing
+torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
+  auto rowidx = sparseMat.indices()[0].to(at::ScalarType::Int);
+  auto colidx = sparseMat.indices()[1].to(at::ScalarType::Int);
+  auto values = sparseMat.values();
+
+  at::DeviceGuard g(denseMat.device());
+
+  torch::Tensor resMat = torch::zeros({sparseMat.size(0), denseMat.size(1)}, denseMat.options());
+
+  torch::Tensor rowptr = torch::empty({sparseMat.size(0) + 1}, rowidx.options());
+
+  torch::Tensor rowcount = torch::zeros({sparseMat.size(0)}, rowidx.options());
+
+  dim3 nthreads, nblocks;
+
+  nthreads.x = 1024;
+  nblocks.x = DIV(rowidx.size(0) + 1, 1024);
+
+  _calc_rowptr<<<nblocks, nthreads>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
+
+  cudaDeviceSynchronize();
+
+  // calcauted as prefix sum of rowptr divided by NNZ_PER_CHUNK, stores the writing positions for virtual rowptrs
+  torch::Tensor rowpos = torch::zeros({sparseMat.size(0)}, rowidx.options());
+
+  if (rowpos.size(0) > ELEMENTS_PER_BLOCK) {
+    scanLargeDeviceArray(rowpos.data<int>(), rowptr.data<int>(), rowpos.size(0), false);
+
+  } else {
+    scanSmallDeviceArray(rowpos.data<int>(), rowptr.data<int>(), rowpos.size(0), false);
+  }
+  //std::cout << rowpos << std::endl;
+  //std::cout << rowptr << std::endl;
+
+  cudaDeviceSynchronize();
+
+  int num_virtual_rows = rowpos[rowpos.size(0) - 1].item().to<int>() + DIV(rowptr[rowptr.size(0) - 1].item().to<int>() - rowptr[rowptr.size(0) - 2].item().to<int>(), NNZ_PER_CHUNK);
+
+  //std::cout << sparseMat.size(0) << " " << num_virtual_rows << std::endl;
+
+  torch::Tensor vrowptr = torch::empty({num_virtual_rows + 1}, rowptr.options());
+
+  _calc_vrowptr<<<nblocks, nthreads>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowpos.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
+
+  cudaDeviceSynchronize();
+
+  //std::cout << vrowptr << std::endl;
+  //std::cout << rowptr << std::endl;
+  //std::cout << rowidx << std::endl;
+
+  //std::cout << "===================" << std::endl;
+
+  //std::cout << rowidx.size(0) << std::endl;
+
+  // std::cout << rowptr << std::endl;
+
+  //std::cout << resMat << std::endl;
+
+  if (denseMat.size(1) >= 64) {
+    dim3 nthreads_spmm(32, SROW_PER_TILE);
+    dim3 nblocks_spmm(DIV(vrowptr.size(0), SROW_PER_TILE), DIV(denseMat.size(1), 64));
+    _spmm_cuda_v2_kernel<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>());
+
+    int remaining = denseMat.size(1) % 64;
+    if (remaining > 0)
+      _spmm_cuda_v2_kernel_small<<<vrowptr.size(0) - 1, 64>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), denseMat.size(1) - remaining);
+  } else {
+    _spmm_cuda_v2_kernel_small<<<vrowptr.size(0) - 1, 64>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), 0);
+    ;
+  }
 
   //cudaDeviceSynchronize();
 

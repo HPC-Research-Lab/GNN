@@ -2,6 +2,7 @@ import torch
 import time
 import sys
 from torch.utils.cpp_extension import load
+import numpy as np
 
 spmm_cpp = load(name='spmm', sources=['spmm_cpp/spmm.cpp', 'spmm_cpp/cuda_spmm.cu'])
 
@@ -18,8 +19,8 @@ class SparseDenseMM(torch.autograd.Function):
     torch.cuda.synchronize()
     t1 = time.time()
     ctx.save_for_backward(mat1)
-    output = spmm_cpp.spmm(mat1, mat2)
-    #output = mat1.mm(mat2)
+    #output = spmm_cpp.spmm(mat1, mat2)
+    output = mat1.mm(mat2)
     torch.cuda.synchronize()
     spmm_forward_time += time.time() - t1
     return output
@@ -40,14 +41,20 @@ class SparseDenseMM(torch.autograd.Function):
 
 spmm = SparseDenseMM.apply
 
-
-
-#a = torch.randn(2, 3).to_sparse().cuda().requires_grad_(True)
-#b = torch.randn(3, 2).cuda().requires_grad_(True)
-
-#y = spmm(a, b)
-
-#print(y)
+## testing
+#for i in range(20):
+#  print(f"testing {i}")
+#  nc = np.random.randint(100, 2000)
+#  print(f'nc {nc}')
+#  a = torch.randn(np.random.randint(100,2000), nc).to_sparse().cuda().requires_grad_(True)
+#  b = torch.randn(nc, np.random.randint(1,2000)).cuda().requires_grad_(True)
+  #print(a)
+  #print(b)
+#  y = spmm(a, b)
+  #print(y)
+  #print(a.mm(b))
+#  print(torch.norm(y - a.mm(b)))
+#  assert(torch.norm(y - a.mm(b)) < 0.1)
 
 #print(a.mm(b))
 

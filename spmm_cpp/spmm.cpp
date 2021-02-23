@@ -1,6 +1,6 @@
 #include <torch/extension.h>
 
-torch::Tensor spmm_cuda(torch::Tensor sparseMat, torch::Tensor denseMat);
+torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat);
 
 #define CHECK_CUDA(x) \
   TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor")
@@ -18,7 +18,7 @@ torch::Tensor spmm_cuda(torch::Tensor sparseMat, torch::Tensor denseMat);
 torch::Tensor spmm(torch::Tensor sparseMat, torch::Tensor denseMat) {
 	CHECK_SPARSE(sparseMat);
 	CHECK_DENSE(denseMat);
-	return spmm_cuda(sparseMat, denseMat);
+	return spmm_cuda_v2(sparseMat, denseMat);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
