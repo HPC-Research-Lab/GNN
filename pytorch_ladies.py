@@ -175,19 +175,13 @@ def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nod
             num_batches += 1
         
         for i in range(0, num_batches, args.queue_size):
-            futures = []
-            for j in range(min(args.queue_size, num_batches-i)):
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), train_nodes[idxs[(i+j)*args.batch_size: min((i+j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders))
-            samples = []
-            for fut in as_completed(futures):
-                samples.append(fut.result())
+            samples = pool.map(sampler, [(np.random.randint(2**32 - 1), train_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders) for j in range(i, min(i+args.queue_size, num_batches))])
             yield from samples
     elif mode == 'val':
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
         batch_nodes = valid_nodes[idx]
-        fut = pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders)
-        yield fut.result()
+        yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders)
 
 def package_mxl(mxl, device):
     res = []
