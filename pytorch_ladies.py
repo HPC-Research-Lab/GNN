@@ -31,6 +31,8 @@ parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
+parser.add_argument('--queue_size', type=int, default= 32,
+                    help='Max number of samples in the queue')
 parser.add_argument('--batch_size', type=int, default=2048,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
@@ -171,17 +173,21 @@ def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nod
         num_batches = len(train_nodes) // args.batch_size
         if (len(train_nodes) % args.batch_size):
             num_batches += 1
-        futures = []
-        for i in range(num_batches):
-            futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), train_nodes[idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders))
-        return futures
+        
+        for i in range(0, num_batches, args.queue_size):
+            futures = []
+            for j in range(min(args.queue_size, num_batches-i)):
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), train_nodes[idxs[(i+j)*args.batch_size: min((i+j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders))
+            samples = []
+            for fut in as_completed(futures):
+                samples.append(fut.result())
+            yield from samples
     elif mode == 'val':
-        futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
         batch_nodes = valid_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders))
-        return futures
+        fut = pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders)
+        yield fut.result()
 
 def package_mxl(mxl, device):
     res = []
@@ -272,8 +278,7 @@ if __name__ == "__main__":
             train_losses = []
 
             train_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
-            for fut in as_completed(train_data):    
-                adjs, input_nodes, output_nodes = fut.result()
+            for adjs, input_nodes, output_nodes in train_data:    
                 #t0 = time.time()
                 adjs = package_mxl(adjs, device)
                 #data_transfer_time += time.time() -  t0
@@ -295,9 +300,9 @@ if __name__ == "__main__":
             
             
             susage.eval()
-            val_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
-            for fut in as_completed(val_data):
-                adjs, input_nodes, output_nodes = fut.result()
+            val_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='val')
+
+            for adjs, input_nodes, output_nodes in val_data:
                 adjs = package_mxl(adjs, device)
                 output = susage.forward(feat_data[input_nodes], adjs)
                 if args.sample_method == 'full':
