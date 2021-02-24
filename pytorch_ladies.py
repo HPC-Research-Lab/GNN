@@ -9,7 +9,8 @@ import scipy
 import multiprocessing as mp
 from sklearn import metrics
 import custom_sparse_ops
-from multiprocessing import Pool
+from concurrent.futures import ThreadPoolExecutor
+
 
 
 import warnings
@@ -165,7 +166,7 @@ def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, ord
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
     return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes
 
-def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train', sampling_time = []):
+def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train', sampling_time = []):
     if mode == 'train':
         # sample p batches for training
         idxs = torch.randperm(len(train_nodes))
@@ -174,15 +175,14 @@ def prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, la
             num_batches += 1
         
         for i in range(0, num_batches, args.num_workers):
-            with Pool(processes=args.num_workers) as pool:
-                samples = pool.starmap(sampler, [(np.random.randint(2**32 - 1), train_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders) for j in range(i, min(i+args.num_workers, num_batches))])
+            samples = pool.map(sampler, [(np.random.randint(2**32 - 1), train_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders) for j in range(i, min(i+args.num_workers, num_batches))])
             yield from samples
             #sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time)
     elif mode == 'val':
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
         batch_nodes = valid_nodes[idx]
-        yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders)
+        yield sampler((np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders))
 
 def package_mxl(mxl, device):
     res = []
@@ -222,6 +222,8 @@ if __name__ == "__main__":
         device = torch.device("cuda:" + str(args.cuda))
     else:
         device = torch.device("cpu")
+
+    pool = ThreadPoolExecutor(max_workers=args.num_workers) 
         
         
     print(args.dataset, args.sample_method)
@@ -270,7 +272,7 @@ if __name__ == "__main__":
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
+            train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
             for adjs, input_nodes, output_nodes in train_data:    
                 #t0 = time.time()
                 adjs = package_mxl(adjs, device)
@@ -293,7 +295,7 @@ if __name__ == "__main__":
             
             
             susage.eval()
-            val_data = prepare_data(sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
+            val_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
             for adjs, input_nodes, output_nodes in val_data:
                 adjs = package_mxl(adjs, device)
                 output = susage.forward(feat_data[input_nodes], adjs)

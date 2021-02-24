@@ -41,7 +41,7 @@ class SparseDenseMM(torch.autograd.Function):
 
 spmm = SparseDenseMM.apply
 
-## testing
+## Testing
 #for i in range(20):
 #  print(f"testing {i}")
 #  nc = np.random.randint(100, 2000)
@@ -70,3 +70,22 @@ spmm = SparseDenseMM.apply
 #with Pool(5) as pool:
 #  res = pool.starmap(f, [(i, i*i) for i in range(10)])
 #  print(res)
+
+
+#from concurrent.futures import ThreadPoolExecutor, as_completed
+
+#def f(i, j):
+#  return i + j
+
+#def helper(a):
+ # return f(*a)
+
+#args = [(i, i*i) for i in range(10)]
+
+#def gen():
+ # with ThreadPoolExecutor(max_workers=8) as executor:
+ #   yield from executor.map(helper, args)
+
+#for i in gen():
+ # print(i)
+
