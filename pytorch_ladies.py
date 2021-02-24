@@ -33,11 +33,11 @@ parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
 parser.add_argument('--queue_size', type=int, default= 32,
                     help='Max number of samples in the queue')
-parser.add_argument('--batch_size', type=int, default=2048,
+parser.add_argument('--batch_size', type=int, default=512,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
-parser.add_argument('--samp_num', type=int, default=16384,
+parser.add_argument('--samp_num', type=int, default=4096,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
                     help='Sampled Algorithms: ladies/fastgcn/full')
@@ -81,7 +81,10 @@ class GraphConvolution(nn.Module):
         feat = x
         if self.order > 0:
             #profile(adj._indices())
-            feat = custom_sparse_ops.spmm(adj, feat)
+            if (self.training):
+                feat = custom_sparse_ops.spmm(adj, feat)
+            else:
+                feat = torch.sparse.mm(adj, feat)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
