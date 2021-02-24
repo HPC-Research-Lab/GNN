@@ -181,7 +181,7 @@ def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nod
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
         batch_nodes = valid_nodes[idx]
-        yield sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders)
+        yield sampler((np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders))
 
 def package_mxl(mxl, device):
     res = []
@@ -271,7 +271,7 @@ if __name__ == "__main__":
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
+            train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
             for adjs, input_nodes, output_nodes in train_data:    
                 #t0 = time.time()
                 adjs = package_mxl(adjs, device)
@@ -294,7 +294,7 @@ if __name__ == "__main__":
             
             
             susage.eval()
-            val_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='val')
+            val_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='val')
 
             for adjs, input_nodes, output_nodes in val_data:
                 adjs = package_mxl(adjs, device)
