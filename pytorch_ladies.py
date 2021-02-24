@@ -9,7 +9,7 @@ import scipy
 import multiprocessing as mp
 from sklearn import metrics
 import custom_sparse_ops
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 
@@ -171,16 +171,17 @@ def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nod
         num_batches = len(train_nodes) // args.batch_size
         if (len(train_nodes) % args.batch_size):
             num_batches += 1
-        
-        for i in range(0, num_batches, args.pool_num):
-            samples = pool.map(sampler, [(np.random.randint(2**32 - 1), train_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders) for j in range(i, min(i+args.pool_num, num_batches))])
-            yield from samples
-            #sampler(np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, sampling_time)
+        futures = []
+        for i in range(num_batches):
+            futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), train_nodes[idxs[i*args.batch_size: min((i+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders))
+        return futures
     elif mode == 'val':
+        futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
         batch_nodes = valid_nodes[idx]
-        yield sampler((np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders))
+        return futures
 
 def package_mxl(mxl, device):
     res = []
@@ -270,8 +271,9 @@ if __name__ == "__main__":
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
-            for adjs, input_nodes, output_nodes in train_data:    
+            train_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
+            for fut in as_completed(train_data):    
+                adjs, input_nodes, output_nodes = fut.result()
                 #t0 = time.time()
                 adjs = package_mxl(adjs, device)
                 #data_transfer_time += time.time() -  t0
@@ -293,8 +295,9 @@ if __name__ == "__main__":
             
             
             susage.eval()
-            val_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
-            for adjs, input_nodes, output_nodes in val_data:
+            val_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'val')
+            for fut in as_completed(val_data):
+                adjs, input_nodes, output_nodes = fut.result()
                 adjs = package_mxl(adjs, device)
                 output = susage.forward(feat_data[input_nodes], adjs)
                 if args.sample_method == 'full':

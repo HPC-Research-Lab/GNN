@@ -72,20 +72,22 @@ spmm = SparseDenseMM.apply
 #  print(res)
 
 
-#from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-#def f(i, j):
-#  return i + j
+def f(i, j):
+  return i + j
 
-#def helper(a):
- # return f(*a)
 
-#args = [(i, i*i) for i in range(10)]
+args = [(i, i*i) for i in range(10)]
 
-#def gen():
- # with ThreadPoolExecutor(max_workers=8) as executor:
- #   yield from executor.map(helper, args)
+def gen():
+  futures = []
+  with ThreadPoolExecutor(max_workers=8) as executor:
+    for i in range(10):
+      futures.append(executor.submit(f, i, i*i))
+  return futures
+  
 
-#for i in gen():
- # print(i)
+for fut in as_completed(gen()):
+  print(fut.result())
 
