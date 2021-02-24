@@ -1,5 +1,6 @@
 #include <torch/extension.h>
 
+torch::Tensor spmm_cuda_v1(torch::Tensor sparseMat, torch::Tensor denseMat);
 torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat);
 
 #define CHECK_CUDA(x) \
@@ -15,12 +16,20 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat);
   CHECK_CUDA(x);       \
   CHECK_COAL(x)
 
-torch::Tensor spmm(torch::Tensor sparseMat, torch::Tensor denseMat) {
+torch::Tensor spmm_load_balance(torch::Tensor sparseMat, torch::Tensor denseMat) {
 	CHECK_SPARSE(sparseMat);
 	CHECK_DENSE(denseMat);
 	return spmm_cuda_v2(sparseMat, denseMat);
 }
 
+
+torch::Tensor spmm(torch::Tensor sparseMat, torch::Tensor denseMat) {
+	CHECK_SPARSE(sparseMat);
+	CHECK_DENSE(denseMat);
+	return spmm_cuda_v1(sparseMat, denseMat);
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 	m.def("spmm", &spmm, "Sparse-Dense Matrix Multiplication");
+	m.def("spmm_load_balance", &spmm_load_balance, "Sparse-Dense Matrix Multiplication");
 }

@@ -87,10 +87,12 @@ __global__ void _spmm_cuda_v1_kernel(
 
       for (int b = rowptr[r]; b < rowptr[r + 1]; b += LENGTH) {
         int length = LENGTH > rowptr[r + 1] - b ? rowptr[r + 1] - b : LENGTH;
-        for (int i = threadIdx.x; i < length; i += 32) {
+        for (int i = threadIdx.x; i < length; i += blockDim.x) {
           values_buf[threadIdx.y][i] = values[i + b];
           colidx_buf[threadIdx.y][i] = colidx[i + b];
         }
+        __syncthreads();
+
         for (int k = 0; k < length; k++) {
           pares += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
           pares2 += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c2];
@@ -219,13 +221,22 @@ __global__ void _spmm_cuda_v2_kernel(
 
       for (int b = vrowptr[r]; b < vrowptr[r + 1]; b += LENGTH) {
         int length = LENGTH > vrowptr[r + 1] - b ? vrowptr[r + 1] - b : LENGTH;
-        for (int i = threadIdx.x; i < length; i += 32) {
+        for (int i = threadIdx.x; i < length; i += blockDim.x) {
           values_buf[threadIdx.y][i] = values[i + b];
           colidx_buf[threadIdx.y][i] = colidx[i + b];
         }
-        for (int k = 0; k < length; k++) {
+        __syncthreads();
+
+        for (int k = 0; k < ((length >> 1) << 1); k += 2) {
           pares += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
           pares2 += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c2];
+          pares += values_buf[threadIdx.y][k+1] * denseMat[colidx_buf[threadIdx.y][k + 1]][c];
+          pares2 += values_buf[threadIdx.y][k+1] * denseMat[colidx_buf[threadIdx.y][k + 1]][c2];
+        }
+
+        if (length & 1) {
+          pares += values_buf[threadIdx.y][length-1] * denseMat[colidx_buf[threadIdx.y][length - 1]][c];
+          pares2 += values_buf[threadIdx.y][length-1] * denseMat[colidx_buf[threadIdx.y][length - 1]][c2];
         }
       }
       if (vrowptr[r + 1] - vrowptr[r] > 0) {
@@ -248,14 +259,31 @@ __global__ void _spmm_cuda_v2_kernel_small(
     const int64_t ncols,
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> denseMat,
     float *__restrict__ resMat, int col_offset) {
-  int r = blockIdx.x;
-  int c = threadIdx.x + col_offset;
-  if (c < denseMat.size(1)) {
+  __shared__ float values_buf[SROW_PER_TILE][LENGTH];
+  __shared__ int colidx_buf[SROW_PER_TILE][LENGTH];
+
+  int r = blockIdx.x * SROW_PER_TILE + threadIdx.y;
+  if (r < vrowptr.size(0) - 1) {
+    int c = threadIdx.x + col_offset;
     float pares = 0.0;
-    for (int k = vrowptr[r]; k < vrowptr[r + 1]; k++) {
-      pares += values[k] * denseMat[colidx[k]][c];
+    for (int b = vrowptr[r]; b < vrowptr[r + 1]; b += LENGTH) {
+      int length = LENGTH > vrowptr[r + 1] - b ? vrowptr[r + 1] - b : LENGTH;
+      for (int i = threadIdx.x; i < length; i += blockDim.x) {
+        values_buf[threadIdx.y][i] = values[i + b];
+        colidx_buf[threadIdx.y][i] = colidx[i + b];
+      }
+      __syncthreads();
+      if (c < denseMat.size(1)) {
+        for (int k = 0; k < ((length >> 1) << 1); k += 2) {
+          pares += values_buf[threadIdx.y][k] * denseMat[colidx_buf[threadIdx.y][k]][c];
+          pares += values_buf[threadIdx.y][k + 1] * denseMat[colidx_buf[threadIdx.y][k + 1]][c];
+        }
+        if (length & 1) {
+          pares += values_buf[threadIdx.y][length-1] * denseMat[colidx_buf[threadIdx.y][length - 1]][c];
+        }
+      }
     }
-    if (vrowptr[r + 1] - vrowptr[r] > 0) {
+    if (c < denseMat.size(1) && vrowptr[r + 1] - vrowptr[r] > 0) {
       atomicAdd(resMat + rowidx[vrowptr[r]] * denseMat.size(1) + c, pares);
     }
   }
@@ -559,7 +587,7 @@ __global__ void _add_not_real(int *output, int length, int *n1, int *n2) {
   int threadID = threadIdx.x;
   int blockOffset = blockID * length;
 
-  output[blockOffset + threadID] += DIV(n1[blockID+1] - n1[blockID], NNZ_PER_CHUNK) + n2[blockID];
+  output[blockOffset + threadID] += DIV(n1[blockID + 1] - n1[blockID], NNZ_PER_CHUNK) + n2[blockID];
 }
 
 // out stores the prefix sum, in stores the rowptr
@@ -593,7 +621,7 @@ void scanLargeDeviceArray(int *d_out, int *d_in, int length, bool real) {
 
     _add_not_real<<<1, remainder>>>(d_out + lengthMultiple, remainder, d_in + lengthMultiple - 1, d_out + lengthMultiple - 1);
 
-   /* int *h_out = (int *)malloc(sizeof(int) * length);
+    /* int *h_out = (int *)malloc(sizeof(int) * length);
     cudaMemcpy(h_out, d_out, sizeof(int) * length, cudaMemcpyDeviceToHost);
     for (int i = 0; i < length; i++) {
       std::cout << h_out[i] << std::endl;
@@ -701,15 +729,21 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
   //std::cout << resMat << std::endl;
 
   if (denseMat.size(1) >= 64) {
+    
     dim3 nthreads_spmm(32, SROW_PER_TILE);
-    dim3 nblocks_spmm(DIV(vrowptr.size(0), SROW_PER_TILE), DIV(denseMat.size(1), 64));
+    dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), DIV(denseMat.size(1), 64));
     _spmm_cuda_v2_kernel<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>());
 
     int remaining = denseMat.size(1) % 64;
-    if (remaining > 0)
-      _spmm_cuda_v2_kernel_small<<<vrowptr.size(0) - 1, 64>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), denseMat.size(1) - remaining);
+    if (remaining > 0) {
+      nthreads_spmm.x = 64;
+      nblocks_spmm.y = 1;
+      _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), denseMat.size(1) - remaining);
+    }
   } else {
-    _spmm_cuda_v2_kernel_small<<<vrowptr.size(0) - 1, 64>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), 0);
+    dim3 nthreads_spmm(64, SROW_PER_TILE);
+    dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), 1);
+    _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), 0);
     ;
   }
 

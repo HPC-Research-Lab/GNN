@@ -19,7 +19,7 @@ class SparseDenseMM(torch.autograd.Function):
     torch.cuda.synchronize()
     t1 = time.time()
     ctx.save_for_backward(mat1)
-    output = spmm_cpp.spmm(mat1, mat2)
+    output = spmm_cpp.spmm_load_balance(mat1, mat2)
     #output = mat1.mm(mat2)
     torch.cuda.synchronize()
     spmm_forward_time += time.time() - t1
@@ -31,8 +31,10 @@ class SparseDenseMM(torch.autograd.Function):
     torch.cuda.synchronize()
     t1 = time.time()
     mat1, = ctx.saved_tensors
-    mat1 = mat1.transpose(0, 1)
-    grad_mat2 = mat1.mm(grad_output)
+    mat1 = mat1.transpose(0, 1).coalesce()
+    #grad_mat2 = mat1.mm(grad_output)
+    grad_mat2 = spmm_cpp.spmm_load_balance(mat1, grad_output)
+    #print(torch.norm(grad_mat2-grad_mat2_tmp))
     torch.cuda.synchronize()
     spmm_backward_time += time.time() - t1
     return None, grad_mat2
@@ -42,20 +44,20 @@ class SparseDenseMM(torch.autograd.Function):
 spmm = SparseDenseMM.apply
 
 ## Testing
-#for i in range(20):
-#  print(f"testing {i}")
-#  nc = np.random.randint(100, 2000)
-#  print(f'nc {nc}')
-#  a = torch.randn(np.random.randint(100,2000), nc).to_sparse().cuda().requires_grad_(True)
-#  b = torch.randn(nc, np.random.randint(1,2000)).cuda().requires_grad_(True)
+""" for i in range(200):
+  print(f"testing {i}")
+  nc = np.random.randint(100, 2000)
+  print(f'nc {nc}')
+  a = torch.randn(np.random.randint(100,2000), nc).to_sparse().cuda()
+  b = torch.randn(nc, np.random.randint(1,2000)).cuda()
   #print(a)
   #print(b)
-#  y = spmm(a, b)
+  y = spmm(a, b)
   #print(y)
   #print(a.mm(b))
-#  print(torch.norm(y - a.mm(b)))
-#  assert(torch.norm(y - a.mm(b)) < 0.1)
-
+  print(torch.norm(y - a.mm(b)))
+  assert(torch.norm(y - a.mm(b)) < 0.1) """
+ 
 #print(a.mm(b))
 
 #y.sum().backward()
