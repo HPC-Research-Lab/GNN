@@ -33,11 +33,11 @@ parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
 parser.add_argument('--queue_size', type=int, default= 32,
                     help='Max number of samples in the queue')
-parser.add_argument('--batch_size', type=int, default=2048,
+parser.add_argument('--batch_size', type=int, default=512,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
-parser.add_argument('--samp_num', type=int, default=8192,
+parser.add_argument('--samp_num', type=int, default=16384,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
                     help='Sampled Algorithms: ladies/fastgcn/full')
@@ -183,23 +183,23 @@ def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, ord
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
     return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes, [torch.from_numpy(np.arange(num_nodes).astype(np.int64)) for i in orders]
 
-def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train', sampling_time = []):
-    if mode == 'train':
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train', sampling_time = []):
+    if mode == 'train' or mode == 'test':
         # sample p batches for training
-        idxs = torch.randperm(len(train_nodes))
-        num_batches = len(train_nodes) // args.batch_size
-        if (len(train_nodes) % args.batch_size):
+        idxs = torch.randperm(len(target_nodes))
+        num_batches = len(target_nodes) // args.batch_size
+        if (len(target_nodes) % args.batch_size):
             num_batches += 1
         for i in range(0, num_batches, args.queue_size):
             futures = []
             for j in range(i, min(args.queue_size+i, num_batches)):
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), train_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[j*args.batch_size: min((j+1)*args.batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, orders))
             yield from futures
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
-        idx = torch.randperm(len(valid_nodes))[:args.batch_size]
-        batch_nodes = valid_nodes[idx]
+        idx = torch.randperm(len(target_nodes))[:args.batch_size]
+        batch_nodes = target_nodes[idx]
         futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders))
         yield from futures
 
@@ -292,7 +292,7 @@ if __name__ == "__main__":
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
             for fut in as_completed(train_data):    
                 adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
                 adjs = package_mxl(adjs, device)
@@ -315,7 +315,7 @@ if __name__ == "__main__":
             
             
             susage.eval()
-            val_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='val')
 
             for fut in as_completed(val_data):    
                 adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
@@ -337,24 +337,22 @@ if __name__ == "__main__":
         '''
         If using batch sampling for inference:
         '''
-        #     for b in np.arange(len(test_nodes) // args.batch_size):
-        #         batch_nodes = test_nodes[b * args.batch_size : (b+1) * args.batch_size]
-        #         adjs, input_nodes, output_nodes = sampler(np.random.randint(2**32 - 1), batch_nodes,
-        #                                     samp_num_list * 20, len(feat_data), lap_matrix, args.n_layers)
-        #         adjs = package_mxl(adjs, device)
-        #         output = best_model.forward(feat_data[input_nodes], adjs)[output_nodes]
-        #         test_f1 = f1_score(output.argmax(dim=1).cpu(), labels[output_nodes].cpu(), average='micro')
-        #         test_f1s += [test_f1]
-        
-        '''
-        If using full-batch inference:
-        '''
-        adjs, input_nodes, output_nodes, sampled_nodes = default_sampler(None, valid_nodes,
-                                        None, len(feat_data), lap_matrix, orders)
-        adjs = package_mxl(adjs, 'cpu')
-        output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs, sampled_nodes)[output_nodes]
-        pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-        test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
-        
-        print('Test F1: %.3f' % (test_f1))
+        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='test')
 
+        correct = 0.0
+        total = 0.0
+
+        for fut in as_completed(test_data):    
+            adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
+            adjs = package_mxl(adjs, device)
+            output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
+            if args.sample_method == 'full':
+                output = output[output_nodes]
+            pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
+            test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
+            correct += test_f1 * len(output_nodes)
+            total += len(output_nodes)
+
+
+        print('Test f1 score: %.2f' % (correct / total))
+        
