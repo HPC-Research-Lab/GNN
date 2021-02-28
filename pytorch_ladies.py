@@ -37,7 +37,7 @@ parser.add_argument('--batch_size', type=int, default=2048,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
-parser.add_argument('--samp_num', type=int, default=16384,
+parser.add_argument('--samp_num', type=int, default=8192,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
                     help='Sampled Algorithms: ladies/fastgcn/full')
@@ -148,7 +148,9 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         pi = scipy.sparse.linalg.norm(U, ord=0, axis=0)
         #pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
-        s_num = np.min([np.sum(p > 0), samp_num_list[d]])
+        samp_num_d = samp_num_list[d]
+        #while True:
+        s_num = np.min([np.sum(p > 0), samp_num_d])
         #     sample the next layer's nodes based on the adaptively probability (p).
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
         #     Add output nodes for self-loop
@@ -156,6 +158,11 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
+            #if adj.nnz < 2e8:
+            #    break
+            #else:
+            #    print('nnz:', adj.nnz)
+            #    samp_num_d /= 2
         adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
@@ -186,7 +193,7 @@ def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nod
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(valid_nodes))[:args.batch_size]
         batch_nodes = valid_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list * 20, num_nodes, lap_matrix, orders))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders))
         yield from futures
 
 
