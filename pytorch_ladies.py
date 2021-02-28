@@ -77,7 +77,7 @@ class GraphConvolution(nn.Module):
         self.offset = nn.Parameter(torch.zeros(n_out))
         self.scale = nn.Parameter(torch.ones(n_out))
         self.order = order
-    def forward(self, x, adj):
+    def forward(self, x, adj, sampled_nodes):
         feat = x
         if self.order > 0:
             #profile(adj._indices())
@@ -85,6 +85,7 @@ class GraphConvolution(nn.Module):
                 feat = custom_sparse_ops.spmm(adj, feat)
             else:
                 feat = torch.sparse.mm(adj, feat)
+            feat = torch.cat([x[sampled_nodes], feat], 1)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
@@ -97,17 +98,17 @@ class GCN(nn.Module):
         layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConvolution(nfeat,  nhid, orders[0]))
+        self.gcs.append(GraphConvolution((1+orders[0])*nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConvolution(nhid,  nhid, orders[i+1]))
-    def forward(self, x, adjs):
+            self.gcs.append(GraphConvolution((1+orders[i+1])*nhid,  nhid, orders[i+1]))
+    def forward(self, x, adjs, sampled_nodes):
         '''
             The difference here with the original GCN implementation is that
             we will receive different adjacency matrix for different layer.
         '''
         for idx in range(len(self.gcs)):
-            x = self.dropout(self.gcs[idx](x, adjs[idx]))
+            x = self.dropout(self.gcs[idx](x, adjs[idx], sampled_nodes[idx]))
         return x
 
 class SuGCN(nn.Module):
@@ -116,8 +117,8 @@ class SuGCN(nn.Module):
         self.encoder = encoder
         self.dropout = nn.Dropout(dropout)
         self.linear  = nn.Linear(self.encoder.nhid, num_classes)
-    def forward(self, feat, adjs):
-        x = self.encoder(feat, adjs)
+    def forward(self, feat, adjs, sampled_nodes):
+        x = self.encoder(feat, adjs, sampled_nodes)
         x = F.normalize(x, p=2, dim=1)
         x = self.dropout(x)
         x = self.linear(x)
@@ -135,12 +136,14 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     previous_nodes = batch_nodes
     adjs  = []
     orders1 = orders[::-1]
+    sampled_nodes = []
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
     for d in range(len(orders1)):
         if (orders1[d] == 0):
             adjs.append(None)
+            sampled_nodes.append(None)
             continue
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
@@ -154,9 +157,10 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     sample the next layer's nodes based on the adaptively probability (p).
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
         #     Add output nodes for self-loop
-        #after_nodes = np.unique(np.concatenate((after_nodes, batch_nodes)))
+        after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
-        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.      
+        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.    
+        p[previous_nodes] = 0  
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
             #if adj.nnz < 2e8:
             #    break
@@ -164,17 +168,20 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
             #    print('nnz:', adj.nnz)
             #    samp_num_d /= 2
         adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
+
+        sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
     adjs.reverse()
+    sampled_nodes.reverse()
     #if len(sampling_time) == 1:
      #   sampling_time[0] += time.time() - t1
-    return adjs, previous_nodes, batch_nodes
+    return adjs, previous_nodes, batch_nodes, sampled_nodes
 
 def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
-    return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes
+    return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes, [torch.from_numpy(np.arange(num_nodes).astype(np.int64)) for i in orders]
 
 def prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, num_nodes, lap_matrix, orders, mode='train', sampling_time = []):
     if mode == 'train':
@@ -243,7 +250,7 @@ if __name__ == "__main__":
     adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = load_data(args.dataset)
 
 
-    lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
+    lap_matrix = row_normalize(adj_matrix)
     feat_data = torch.FloatTensor(feat_data).to(device)
     print('sigmoid_loss: ', args.sigmoid_loss)
     print('batch_size: ', args.batch_size)
@@ -287,14 +294,14 @@ if __name__ == "__main__":
 
             train_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, 'train')
             for fut in as_completed(train_data):    
-                adjs, input_nodes, output_nodes = fut.result()
+                adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
                 adjs = package_mxl(adjs, device)
                 #data_transfer_time += time.time() -  t0
                 optimizer.zero_grad()
                 torch.cuda.synchronize()
                 t1 = time.time()
                 susage.train()
-                output = susage.forward(feat_data[input_nodes], adjs)
+                output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
                 if args.sample_method == 'full':
                     output = output[output_nodes]
                 loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
@@ -311,9 +318,9 @@ if __name__ == "__main__":
             val_data = prepare_data(pool, sampler, train_nodes, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, mode='val')
 
             for fut in as_completed(val_data):    
-                adjs, input_nodes, output_nodes = fut.result()
+                adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
                 adjs = package_mxl(adjs, device)
-                output = susage.forward(feat_data[input_nodes], adjs)
+                output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
                 if args.sample_method == 'full':
                     output = output[output_nodes]
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -342,10 +349,10 @@ if __name__ == "__main__":
         '''
         If using full-batch inference:
         '''
-        adjs, input_nodes, output_nodes = default_sampler(None, valid_nodes,
+        adjs, input_nodes, output_nodes, sampled_nodes = default_sampler(None, valid_nodes,
                                         None, len(feat_data), lap_matrix, orders)
         adjs = package_mxl(adjs, 'cpu')
-        output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs)[output_nodes]
+        output = best_model.forward(feat_data[input_nodes].to('cpu'), adjs, sampled_nodes)[output_nodes]
         pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
         test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().numpy(), args.sigmoid_loss)
         

@@ -33,7 +33,7 @@ class SparseDenseMM(torch.autograd.Function):
     mat1, = ctx.saved_tensors
     mat1 = mat1.transpose(0, 1).coalesce()
     #grad_mat2 = mat1.mm(grad_output)
-    grad_mat2 = spmm_cpp.spmm_load_balance(mat1, grad_output)
+    grad_mat2 = spmm_cpp.spmm_load_balance(mat1, grad_output.contiguous())
     #print(torch.norm(grad_mat2-grad_mat2_tmp))
     torch.cuda.synchronize()
     spmm_backward_time += time.time() - t1
