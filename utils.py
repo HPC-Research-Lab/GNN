@@ -40,7 +40,7 @@ def parse_index_file(filename):
 def load_data(prefix):
     # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
     # feats: features of all nodes, class_map: label of all nodes
-    adj_full = scipy.sparse.load_npz('./{}/adj_full.npz'.format(prefix)).astype(np.bool)
+    adj_full = scipy.sparse.load_npz('./{}/adj_full.npz'.format(prefix)).astype(np.float)
     role = json.load(open('./{}/role.json'.format(prefix)))
     feats = np.load('./{}/feats.npy'.format(prefix))
     class_map = json.load(open('./{}/class_map.json'.format(prefix)))
