@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
 
     lap_matrix = row_normalize(adj_matrix)
-    feat_data = torch.FloatTensor(feat_data).to(device)
+    feat_data = torch.FloatTensor(feat_data)
     print('sigmoid_loss: ', args.sigmoid_loss)
     print('batch_size: ', args.batch_size)
     print('num batch per epoch: ', len(train_nodes) // args.batch_size)
@@ -301,7 +301,7 @@ if __name__ == "__main__":
                 torch.cuda.synchronize()
                 t1 = time.time()
                 susage.train()
-                output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
+                output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
                 if args.sample_method == 'full':
                     output = output[output_nodes]
                 loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
@@ -320,7 +320,7 @@ if __name__ == "__main__":
             for fut in as_completed(val_data):    
                 adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
                 adjs = package_mxl(adjs, device)
-                output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
+                output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
                 if args.sample_method == 'full':
                     output = output[output_nodes]
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -345,7 +345,7 @@ if __name__ == "__main__":
         for fut in as_completed(test_data):    
             adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
             adjs = package_mxl(adjs, device)
-            output = susage.forward(feat_data[input_nodes], adjs, sampled_nodes)
+            output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
             if args.sample_method == 'full':
                 output = output[output_nodes]
             pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
