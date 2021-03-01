@@ -1,6 +1,6 @@
 from utils import *
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, scale_factor):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, scale_factor, buffer_mask):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -23,6 +23,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         U = lap_matrix[previous_nodes , :]
         #     Only use the upper layer's neighborhood to calculate the probability.
         pi = scipy.sparse.linalg.norm(U, ord=0, axis=0)
+        if scale_factor > 1:
+            pi[buffer_mask == True] = pi[buffer_mask == True] * scale_factor 
         #pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
         samp_num_d = samp_num_list[d]

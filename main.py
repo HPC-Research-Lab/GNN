@@ -7,7 +7,6 @@ from tqdm import tqdm
 import argparse
 import scipy
 import torch.multiprocessing as mp
-import models
 from models import *
 from sampler import *
 from preprocess import *
@@ -114,7 +113,7 @@ def train(rank, device_id, world_size, train_data):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, args.scale_factor, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, args.scale_factor, buffer_mask, 'train')
             for fut in as_completed(train_data):
                 adjs, input_nodes, output_nodes, sampled_nodes = fut.result()
                 adjs = package_mxl(adjs, device)
@@ -175,7 +174,7 @@ def train(rank, device_id, world_size, train_data):
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                     loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, models.trans_time, execution_time, np.average(train_losses), loss_valid, valid_f1))
+                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1))
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
