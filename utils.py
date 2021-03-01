@@ -27,7 +27,7 @@ import sys
 import os
 import scipy
 from sklearn.preprocessing import StandardScaler
-
+from sklearn import metrics
 
 
 def parse_index_file(filename):
@@ -142,3 +142,55 @@ def get_adj(edges, num_nodes):
 def get_laplacian(adj):
     adj = row_normalize(adj + sp.eye(adj.shape[0]))
     return sparse_mx_to_torch_sparse_tensor(adj) 
+
+def profile(idx):
+    r = idx[0].cpu()
+    c = idx[1].cpu()
+   # print(r)
+   # print(c)
+    count = {}
+    for i in range(len(r)):
+        if r[i].item() not in count:
+            count[r[i].item()] = 0
+        count[r[i].item()] += 1
+    print('r: ', sorted(count.values(), reverse=True)[0])
+
+    count2 = {}
+    for i in range(len(c)):
+        if c[i].item() not in count2:
+            count2[c[i].item()] = 0
+        count2[c[i].item()] += 1
+    print('c: ', sorted(count2.values(), reverse=True)[0])
+
+
+
+def package_mxl(mxl, device):
+    res = []
+    for mx in mxl:
+        if mx != None:
+            res.append(torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device).coalesce())
+        else:
+            res.append(None)
+    return res
+
+def loss(preds, labels, sigmoid_loss, device):
+        """
+        The predictor performs sigmoid (for multi-class) or softmax (for single-class)
+        """
+        norm_loss = torch.ones(preds.shape[0]).to(device)
+        norm_loss /= preds.shape[0]
+        if sigmoid_loss:
+            norm_loss = norm_loss.unsqueeze(1)
+            return torch.nn.BCEWithLogitsLoss(weight=norm_loss, reduction='sum')(preds, labels)
+        else:
+            _ls = torch.nn.CrossEntropyLoss(reduction='none')(preds, labels)
+            return (norm_loss*_ls).sum()
+
+def calc_f1(y_true, y_pred,is_sigmoid):
+    if not is_sigmoid:
+        y_true = np.argmax(y_true, axis=1)
+        y_pred = np.argmax(y_pred, axis=1)
+    else:
+        y_pred[y_pred > 0.5] = 1
+        y_pred[y_pred <= 0.5] = 0
+    return metrics.f1_score(y_true, y_pred, average="micro"), metrics.f1_score(y_true, y_pred, average="macro")
