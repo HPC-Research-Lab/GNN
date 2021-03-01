@@ -13,6 +13,6 @@ Datasets are adopted from GraphSAINT.
 Execute the following scripts to train and evaluate the model:
 
 ```bash
-python pytorch_ladies.py --cuda 0 --dataset data/ppi --epoch_num 1000 # Train GCN with LADIES on ppi graph.
+python main.py --cuda='0' --dataset data/ppi --epoch_num 1000 --buffer_size 10000 --scale_factor 4 # Train GCN with LADIES on ppi graph.
 ```
 
