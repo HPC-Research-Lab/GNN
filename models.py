@@ -1,6 +1,7 @@
 from utils import *
 import custom_sparse_ops
 
+trans_time = 0.0
 
 class GraphConvolution(nn.Module):
     def __init__(self, n_in, n_out, order, bias=True):
@@ -12,6 +13,7 @@ class GraphConvolution(nn.Module):
         self.scale = nn.Parameter(torch.ones(n_out))
         self.order = order
     def forward(self, x, adj, sampled_nodes):
+        #global trans_time
         feat = x
         if self.order > 0:
             #profile(adj._indices())
@@ -20,7 +22,11 @@ class GraphConvolution(nn.Module):
             else:
                 feat = torch.sparse.mm(adj, feat)
             feat = torch.cat([x[sampled_nodes], feat], 1)
+       # torch.cuda.synchronize()
+       # t1 = time.time()
         out = F.elu(self.linear(feat))
+       # torch.cuda.synchronize()
+      #  trans_time += time.time() - t1
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
         return (out - mean) * self.scale * torch.rsqrt(var) + self.offset

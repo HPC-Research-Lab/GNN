@@ -37,37 +37,6 @@ def parse_index_file(filename):
         index.append(int(line.strip()))
     return index
 
-def load_data(prefix):
-    # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
-    # feats: features of all nodes, class_map: label of all nodes
-    adj_full = scipy.sparse.load_npz('./{}/adj_full.npz'.format(prefix)).astype(np.float)
-    role = json.load(open('./{}/role.json'.format(prefix)))
-    feats = np.load('./{}/feats.npy'.format(prefix))
-    class_map = json.load(open('./{}/class_map.json'.format(prefix)))
-    class_map = {int(k):v for k,v in class_map.items()}
-    assert len(class_map) == feats.shape[0]
-    # ---- normalize feats ----
-    train_nodes = role['tr']
-    train_feats = feats[train_nodes]
-    scaler = StandardScaler()
-    scaler.fit(train_feats)
-    feats = scaler.transform(feats)
-
-    num_vertices = adj_full.shape[0]
-    if isinstance(list(class_map.values())[0],list):
-        num_classes = len(list(class_map.values())[0])
-        class_arr = np.zeros((num_vertices, num_classes))
-        for k,v in class_map.items():
-            class_arr[k] = v
-    else:
-        num_classes = max(class_map.values()) - min(class_map.values()) + 1
-        class_arr = np.zeros((num_vertices, num_classes))
-        offset = min(class_map.values())
-        for k,v in class_map.items():
-            class_arr[k][v-offset] = 1
-
-    return adj_full, class_arr, feats, num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te'])
-
 def sym_normalize(mx):
     """Sym-normalize sparse matrix"""
     rowsum = np.array(mx.sum(1))
