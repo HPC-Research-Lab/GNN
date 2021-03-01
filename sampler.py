@@ -1,6 +1,6 @@
 from utils import *
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, scale_factor, buffer_mask):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -53,7 +53,15 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     sampled_nodes.reverse()
     #if len(sampling_time) == 1:
      #   sampling_time[0] += time.time() - t1
-    return adjs, previous_nodes, batch_nodes, sampled_nodes
+
+    input_nodes_idx = buffer_map[previous_nodes]
+    input_nodes_mask = buffer_mask[previous_nodes]
+    feat_gpu_idx = input_nodes_mask == True
+    feat_cpu_idx = input_nodes_mask == False
+    gpu_nodes_idx = input_nodes_idx[feat_gpu_idx]
+    cpu_nodes_idx = input_nodes_idx[feat_cpu_idx]
+    
+    return adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, batch_nodes, sampled_nodes
 
 def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)

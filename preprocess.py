@@ -41,7 +41,7 @@ def load_data(prefix):
 
 
 iter_num = 0
-def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, scale_factor=1, buffer_mask=None, mode='train'):
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, buffer_map, buffer_mask, scale_factor=1, mode='train'):
     global iter_num
     if mode == 'train' or mode == 'test':
         # sample p batches for training
@@ -61,14 +61,14 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
         for i in range(0, num_batches, 32):   # 32 is the queue size
             futures = []
             for j in range(i, min(32+i, num_batches)):
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, orders, scale_factor, buffer_mask))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor))
             yield from futures
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(target_nodes))[:batch_size]
         batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, 1, None))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, 1))
         yield from futures
 
 
