@@ -33,7 +33,7 @@ parser.add_argument('--pool_num', type=int, default= 4,
                     help='Number of Pool')
 parser.add_argument('--batch_size', type=int, default=512,
                     help='size of output node in a batch')
-parser.add_argument('--orders', type=str, default='1,1,0',
+parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
 parser.add_argument('--samp_num', type=int, default=16384,
                     help='Number of sampled nodes per layer')
@@ -42,8 +42,10 @@ parser.add_argument('--sample_method', type=str, default='ladies',
 parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
-parser.add_argument('--buffer_size', type=int, default=100000,
+parser.add_argument('--buffer_size', type=int, default=10000,
                     help='Number of buffered nodes on GPU')
+parser.add_argument('--adj_buffer_size', type=int, default=10000,
+                    help='Number of buffered rows of the adj_matrix on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--update_buffer_period', type=int, default=0,
@@ -55,7 +57,7 @@ parser.set_defaults(global_permutation=False)
 args = parser.parse_args()
 
 
-def init_process(rank, device_id, world_size, fn, train_data, backend='gloo'):
+def init_process(rank, device_id, world_size, fn, train_data, backend='mpi'):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group(backend, rank=rank, world_size=world_size)
@@ -102,10 +104,9 @@ def train(rank, device_id, world_size, train_data):
         susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 
-        buffer, buffer_map, buffer_mask = create_buffer(np.array(np.sum(adj_matrix, axis=0))[0]
-, feat_data, args.buffer_size, device)
+        buffer, buffer_map, buffer_mask = create_buffer(np.array(np.sum(adj_matrix, axis=0))[0], feat_data, args.buffer_size, device)
 
-        #adj_buffer, adj_buffer_map, adj_buffer_mask = create_buffer()
+        #adj_buffer, adj_buffer_map, adj_buffer_mask = create_adj_buffer(np.array(np.sum(adj_matrix, axis=0))[0], lap_matrix, args.adj_buffer_size, device)
 
         samples = np.zeros(adj_matrix.shape[1])
 
@@ -119,15 +120,16 @@ def train(rank, device_id, world_size, train_data):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
                 adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
-                # transfer the sampled matrix is expensive
-                adjs = package_mxl(adjs, device)
+
                 optimizer.zero_grad()
                 susage.train()
+
                 torch.cuda.synchronize()
                 t1 = time.time()
+
                 input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                 input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
                 input_feat_data[feat_cpu_idx] = feat_data[cpu_nodes_idx].to(device)
@@ -153,11 +155,11 @@ def train(rank, device_id, world_size, train_data):
 
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, mode='val')
+                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, mode='val')
 
                 for fut in as_completed(val_data):    
                     adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
-                    adjs = package_mxl(adjs, device)
+                    #adjs = package_mxl(adjs, device)
                     input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                     input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
                     input_feat_data[feat_cpu_idx] = feat_data[cpu_nodes_idx].to(device)
@@ -181,14 +183,14 @@ def train(rank, device_id, world_size, train_data):
             '''
             If using batch sampling for inference:
             '''
-            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, mode='test')
 
             correct = 0.0
             total = 0.0
 
             for fut in as_completed(test_data):    
                 adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
-                adjs = package_mxl(adjs, device)
+                #adjs = package_mxl(adjs, device)
                 input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                 input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
                 input_feat_data[feat_cpu_idx] = feat_data[cpu_nodes_idx].to(device)

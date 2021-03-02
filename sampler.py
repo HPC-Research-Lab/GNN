@@ -1,6 +1,6 @@
 from utils import *
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -38,12 +38,13 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.    
         p[previous_nodes] = 0  
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
-            #if adj.nnz < 2e8:
-            #    break
-            #else:
-            #    print('nnz:', adj.nnz)
-            #    samp_num_d /= 2
-        adjs += [sparse_mx_to_torch_sparse_tensor(adj)]
+        adj = adj.tocoo().astype(np.float32)
+        row, col, value = torch.from_numpy(adj.row.astype(np.int32)).to(device), torch.from_numpy(adj.col.astype(np.int32)).to(device), torch.from_numpy(adj.data).to(device)
+        sorted_idx = torch.argsort(row)
+        row = row[sorted_idx]
+        col = col[sorted_idx]
+        value = value[sorted_idx]
+        adjs += [(row, col, value, len(previous_nodes), len(after_nodes))]
 
         sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
@@ -63,13 +64,9 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     
     return adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, batch_nodes, sampled_nodes
 
-def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
-    mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
-    return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes, [torch.from_numpy(np.arange(num_nodes).astype(np.int64)) for i in orders]
-
 
 iter_num = 0
-def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, buffer_map, buffer_mask, scale_factor=1, global_permutation=False, mode='train'):
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, buffer_map, buffer_mask, device, scale_factor=1, global_permutation=False, mode='train'):
     global iter_num
     if mode == 'train' or mode == 'test':
         # sample p batches for training
@@ -94,12 +91,12 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
         for i in range(0, num_batches, 32):   # 32 is the queue size
             futures = []
             for j in range(i, min(32+i, num_batches)):
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device))
             yield from futures
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(target_nodes))[:batch_size]
         batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, 1))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, 1, device))
         yield from futures

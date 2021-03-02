@@ -78,12 +78,6 @@ def generate_random_graph(n, e, prob = 0.1):
     edges = np.array(edges)
     return degrees, edges, g, None 
 
-def get_sparse(edges, num_nodes):
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                    shape=(num_nodes, num_nodes), dtype=np.float32)
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    adj = normalize(adj + sp.eye(adj.shape[0]))
-    return sparse_mx_to_torch_sparse_tensor(adj) 
 
 def norm(l):
     return (l - np.average(l)) / np.std(l)
@@ -137,7 +131,12 @@ def package_mxl(mxl, device):
     res = []
     for mx in mxl:
         if mx != None:
-            res.append(torch.sparse.FloatTensor(mx[0], mx[1], mx[2]).to(device).coalesce())
+            row, col, value = mx[0].to(device), mx[1].to(device), mx[2].to(device)
+            sorted_idx = torch.argsort(row)
+            row = row[sorted_idx]
+            col = col[sorted_idx]
+            value = value[sorted_idx]
+            res.append((row, col, value, mx[3], mx[4]))
         else:
             res.append(None)
     return res

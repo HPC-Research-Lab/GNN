@@ -17,10 +17,7 @@ class GraphConvolution(nn.Module):
         feat = x
         if self.order > 0:
             #profile(adj._indices())
-            if (self.training):
-                feat = custom_sparse_ops.spmm(adj, feat)
-            else:
-                feat = torch.sparse.mm(adj, feat)
+            feat = custom_sparse_ops.spmm(*adj, feat)
             feat = torch.cat([x[sampled_nodes], feat], 1)
        # torch.cuda.synchronize()
        # t1 = time.time()

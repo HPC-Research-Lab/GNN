@@ -696,10 +696,10 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
   torch::Tensor rowpos = torch::zeros({sparseMat.size(0)}, rowidx.options());
 
   if (rowpos.size(0) > ELEMENTS_PER_BLOCK) {
-    scanLargeDeviceArray(rowpos.data<int>(), rowptr.data<int>(), rowpos.size(0), false);
+    scanLargeDeviceArray(rowpos.data_ptr<int>(), rowptr.data_ptr<int>(), rowpos.size(0), false);
 
   } else {
-    scanSmallDeviceArray(rowpos.data<int>(), rowptr.data<int>(), rowpos.size(0), false);
+    scanSmallDeviceArray(rowpos.data_ptr<int>(), rowptr.data_ptr<int>(), rowpos.size(0), false);
   }
   //std::cout << rowpos << std::endl;
   //std::cout << rowptr << std::endl;
@@ -732,18 +732,97 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
     
     dim3 nthreads_spmm(32, SROW_PER_TILE);
     dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), DIV(denseMat.size(1), 64));
-    _spmm_cuda_v2_kernel<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>());
+    _spmm_cuda_v2_kernel<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>());
 
     int remaining = denseMat.size(1) % 64;
     if (remaining > 0) {
       nthreads_spmm.x = 64;
       nblocks_spmm.y = 1;
-      _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), denseMat.size(1) - remaining);
+      _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>(), denseMat.size(1) - remaining);
     }
   } else {
     dim3 nthreads_spmm(64, SROW_PER_TILE);
     dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), 1);
-    _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data<float>(), 0);
+    _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>(), 0);
+    ;
+  }
+
+  //cudaDeviceSynchronize();
+
+  return resMat;
+}
+
+torch::Tensor spmm_cuda_v3(torch::Tensor rowidx, torch::Tensor colidx, torch::Tensor values, int nrows, torch::Tensor denseMat) {
+
+  at::DeviceGuard g(denseMat.device());
+
+  torch::Tensor resMat = torch::zeros({nrows, denseMat.size(1)}, denseMat.options());
+  torch::Tensor rowptr = torch::empty({nrows + 1}, rowidx.options());
+  torch::Tensor rowcount = torch::zeros({nrows}, rowidx.options());
+
+
+  dim3 nthreads, nblocks;
+
+  nthreads.x = 1024;
+  nblocks.x = DIV(rowidx.size(0) + 1, 1024);
+
+
+  _calc_rowptr<<<nblocks, nthreads>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
+
+  cudaDeviceSynchronize();
+
+  // calcauted as prefix sum of rowptr divided by NNZ_PER_CHUNK, stores the writing positions for virtual rowptrs
+  torch::Tensor rowpos = torch::zeros({nrows}, rowidx.options());
+
+  if (rowpos.size(0) > ELEMENTS_PER_BLOCK) {
+    scanLargeDeviceArray(rowpos.data_ptr<int>(), rowptr.data_ptr<int>(), rowpos.size(0), false);
+
+  } else {
+    scanSmallDeviceArray(rowpos.data_ptr<int>(), rowptr.data_ptr<int>(), rowpos.size(0), false);
+  }
+  //std::cout << rowpos << std::endl;
+  //std::cout << rowptr << std::endl;
+
+  cudaDeviceSynchronize();
+
+  int num_virtual_rows = rowpos[rowpos.size(0) - 1].item().to<int>() + DIV(rowptr[rowptr.size(0) - 1].item().to<int>() - rowptr[rowptr.size(0) - 2].item().to<int>(), NNZ_PER_CHUNK);
+
+  //std::cout << sparseMat.size(0) << " " << num_virtual_rows << std::endl;
+
+  torch::Tensor vrowptr = torch::empty({num_virtual_rows + 1}, rowptr.options());
+
+  _calc_vrowptr<<<nblocks, nthreads>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowpos.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
+
+  cudaDeviceSynchronize();
+
+  //std::cout << vrowptr << std::endl;
+  //std::cout << rowptr << std::endl;
+  //std::cout << rowidx << std::endl;
+
+  //std::cout << "===================" << std::endl;
+
+  //std::cout << rowidx.size(0) << std::endl;
+
+  // std::cout << rowptr << std::endl;
+
+  //std::cout << resMat << std::endl;
+
+  if (denseMat.size(1) >= 64) {
+    
+    dim3 nthreads_spmm(32, SROW_PER_TILE);
+    dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), DIV(denseMat.size(1), 64));
+    _spmm_cuda_v2_kernel<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), nrows, denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>());
+
+    int remaining = denseMat.size(1) % 64;
+    if (remaining > 0) {
+      nthreads_spmm.x = 64;
+      nblocks_spmm.y = 1;
+      _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), nrows, denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>(), denseMat.size(1) - remaining);
+    }
+  } else {
+    dim3 nthreads_spmm(64, SROW_PER_TILE);
+    dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), 1);
+    _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), nrows, denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>(), 0);
     ;
   }
 

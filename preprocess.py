@@ -54,3 +54,13 @@ def create_buffer(sample_prob, feat_data, buffer_size, device):
     buffer_mask = np.array([False] * len(sample_prob))
     buffer_mask[buffered_nodes] = True
     return buffer, buffer_map, buffer_mask
+
+
+def create_adj_buffer(sample_prob, lap_matrix, buffer_size, device):
+    buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
+    buffer_map = np.arange(len(sample_prob))
+    buffer_map[buffered_nodes] = np.arange(len(buffered_nodes))
+    buffer_mask = np.array([False] * len(sample_prob))
+    buffer_mask[buffered_nodes] = True 
+    buffer = {r: [torch.from_numpy(lap_matrix[r].indices.astype(np.int)).to(device), torch.from_numpy(lap_matrix[r].data.astype(np.float)).to(device)] for r in buffered_nodes}
+    return buffer, buffer_map, buffer_mask
