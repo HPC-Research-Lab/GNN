@@ -48,6 +48,9 @@ parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--update_buffer_period', type=int, default=0,
                     help='Period of GPU buffer being updated')
+parser.add_argument('--global_permutation', dest='global_permutation', action='store_true')
+parser.set_defaults(global_permutation=False)
+
 
 args = parser.parse_args()
 
@@ -101,6 +104,9 @@ def train(rank, device_id, world_size, train_data):
 
         buffer, buffer_map, buffer_mask = create_buffer(np.array(np.sum(adj_matrix, axis=0))[0]
 , feat_data, args.buffer_size, device)
+
+        #adj_buffer, adj_buffer_map, adj_buffer_mask = create_buffer()
+
         samples = np.zeros(adj_matrix.shape[1])
 
         optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
@@ -113,7 +119,7 @@ def train(rank, device_id, world_size, train_data):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, args.scale_factor, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
                 adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
                 # transfer the sampled matrix is expensive

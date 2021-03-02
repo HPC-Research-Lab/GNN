@@ -66,3 +66,40 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
 def default_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders):
     mx = sparse_mx_to_torch_sparse_tensor(lap_matrix)
     return [mx if i>0 else None for i in orders], np.arange(num_nodes), batch_nodes, [torch.from_numpy(np.arange(num_nodes).astype(np.int64)) for i in orders]
+
+
+iter_num = 0
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, buffer_map, buffer_mask, scale_factor=1, global_permutation=False, mode='train'):
+    global iter_num
+    if mode == 'train' or mode == 'test':
+        # sample p batches for training
+        torch.manual_seed(iter_num)
+        #print(iter_num)
+        iter_num += 1
+        chunk_size = len(target_nodes) // world_size
+        if (len(target_nodes) % world_size):
+          chunk_size += 1
+        chunk_start = rank * chunk_size
+        chunk_end = min((rank+1)*chunk_size, len(target_nodes))
+        num_batches = (chunk_end - chunk_start) // batch_size
+        #print(num_batches)
+        if global_permutation == True:
+            idxs = torch.randperm(len(target_nodes))
+        else:
+            idxs = torch.LongTensor(len(target_nodes))
+            idxs[chunk_start:chunk_end] = torch.randperm(chunk_end-chunk_start) + chunk_start
+            #print(idxs)
+        if (num_batches % batch_size):
+          num_batches += 1
+        for i in range(0, num_batches, 32):   # 32 is the queue size
+            futures = []
+            for j in range(i, min(32+i, num_batches)):
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor))
+            yield from futures
+    elif mode == 'val':
+        futures = []
+        # sample a batch with more neighbors for validation
+        idx = torch.randperm(len(target_nodes))[:batch_size]
+        batch_nodes = target_nodes[idx]
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, 1))
+        yield from futures
