@@ -44,8 +44,6 @@ parser.add_argument('--cuda', type=str, default='0',
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
 parser.add_argument('--buffer_size', type=int, default=10000,
                     help='Number of buffered nodes on GPU')
-parser.add_argument('--adj_buffer_size', type=int, default=10000,
-                    help='Number of buffered rows of the adj_matrix on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--update_buffer_period', type=int, default=0,
