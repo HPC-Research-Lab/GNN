@@ -11,6 +11,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     adjs  = []
     orders1 = orders[::-1]
     sampled_nodes = []
+    sampled_cols = []
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
@@ -18,6 +19,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         if (orders1[d] == 0):
             adjs.append(None)
             sampled_nodes.append([])
+            sampled_cols.append([])
             continue
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
@@ -47,6 +49,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         adjs += [(row, col, value, len(previous_nodes), len(after_nodes))]
 
         sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
+        sampled_cols.append(after_nodes.copy())
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
@@ -62,7 +65,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     gpu_nodes_idx = input_nodes_idx[feat_gpu_idx]
     cpu_nodes_idx = input_nodes_idx[feat_cpu_idx]
     
-    return adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, batch_nodes, sampled_nodes
+    return adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, batch_nodes, sampled_nodes, sampled_cols
 
 
 iter_num = 0
@@ -70,7 +73,6 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
     global iter_num
     if mode == 'train' or mode == 'test':
         # sample p batches for training
-        torch.manual_seed(iter_num)
         #print(iter_num)
         iter_num += 1
         chunk_size = len(target_nodes) // world_size
@@ -81,6 +83,7 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
         num_batches = (chunk_end - chunk_start) // batch_size
         #print(num_batches)
         if global_permutation == True:
+            torch.manual_seed(iter_num)
             idxs = torch.randperm(len(target_nodes))
         else:
             idxs = torch.LongTensor(len(target_nodes))
@@ -91,7 +94,8 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
         for i in range(0, num_batches, 32):   # 32 is the queue size
             futures = []
             for j in range(i, min(32+i, num_batches)):
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device))
+                target_nodes_chunk = target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]]
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device))
             yield from futures
     elif mode == 'val':
         futures = []

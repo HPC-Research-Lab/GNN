@@ -12,6 +12,7 @@ from sampler import *
 from preprocess import *
 import torch.distributed as dist
 import os
+import subprocess
 
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -55,7 +56,7 @@ parser.set_defaults(global_permutation=False)
 args = parser.parse_args()
 
 
-def init_process(rank, device_id, world_size, fn, train_data, backend='mpi'):
+def init_process(rank, device_id, world_size, fn, train_data, backend='nccl'):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group(backend, rank=rank, world_size=world_size)
@@ -79,7 +80,6 @@ def train(rank, device_id, world_size, train_data):
     lap_matrix = row_normalize(adj_matrix)
     feat_data = torch.FloatTensor(feat_data)
 
-
     if args.sigmoid_loss == True:
         labels_full = torch.from_numpy(class_arr).to(device)
     else:
@@ -89,6 +89,9 @@ def train(rank, device_id, world_size, train_data):
     orders = [int(t) for t in orders]
     samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
     sampler = ladies_sampler
+
+
+
 
     if rank == 0:
         print(args.dataset, args.sample_method)
@@ -102,9 +105,10 @@ def train(rank, device_id, world_size, train_data):
         susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 
-        buffer, buffer_map, buffer_mask = create_buffer(np.array(np.sum(adj_matrix, axis=0))[0], feat_data, args.buffer_size, device)
+        if args.update_buffer_period > 0:
+            sp_mat = get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size)
 
-        #adj_buffer, adj_buffer_map, adj_buffer_mask = create_adj_buffer(np.array(np.sum(adj_matrix, axis=0))[0], lap_matrix, args.adj_buffer_size, device)
+        buffer, buffer_map, buffer_mask = create_buffer(np.array(np.sum(adj_matrix, axis=0))[0], feat_data, args.buffer_size, device)
 
         samples = np.zeros(adj_matrix.shape[1])
 
@@ -120,14 +124,13 @@ def train(rank, device_id, world_size, train_data):
 
             train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
-                adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
+                adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes, sampled_cols = fut.result()
 
                 optimizer.zero_grad()
                 susage.train()
 
                 torch.cuda.synchronize()
                 t1 = time.time()
-
                 input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                 input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
                 input_feat_data[feat_cpu_idx] = feat_data[cpu_nodes_idx].to(device)
@@ -142,21 +145,26 @@ def train(rank, device_id, world_size, train_data):
                     for param in susage.parameters():
                         dist.all_reduce(param.grad.data, op=dist.reduce_op.SUM)
                 optimizer.step()
-                torch.cuda.synchronize()
-                execution_time += time.time() - t1
+
                 train_losses += [loss_train.detach().tolist()]
                 del loss_train
 
-                if args.update_buffer_period > 0:
-                    for sn in sampled_nodes:
-                        samples[sn] += 1
+                if args.update_buffer_period > 0 and epoch < args.update_buffer_period:
+                    sp_mat = update_sampled_matrix(output_nodes, sampled_cols, sp_mat)
+                    
+                torch.cuda.synchronize()
+                execution_time += time.time() - t1
+        
+            if args.update_buffer_period > 0 and epoch == args.update_buffer_period:
+                sp_prob = reorder_and_restart(adj_matrix, train_nodes, sp_mat, rank, world_size)
+                buffer, buffer_map, buffer_mask = create_buffer(sp_prob, feat_data, args.buffer_size, device)
 
             if rank == 0:
                 susage.eval()
                 val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, mode='val')
 
                 for fut in as_completed(val_data):    
-                    adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
+                    adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes, sampled_cols = fut.result()
                     #adjs = package_mxl(adjs, device)
                     input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                     input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
@@ -171,8 +179,9 @@ def train(rank, device_id, world_size, train_data):
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
 
-            if args.update_buffer_period > 0 and (epoch+1) % args.update_buffer_period == 0:
-                buffer, buffer_map, buffer_mask = create_buffer(samples, feat_data, args.buffer_size, device)
+    
+                    
+                    
 
         if rank == 0:
             best_model = torch.load('./save/best_model.pt')
@@ -187,7 +196,7 @@ def train(rank, device_id, world_size, train_data):
             total = 0.0
 
             for fut in as_completed(test_data):    
-                adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes = fut.result()
+                adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, output_nodes, sampled_nodes, sample_cols = fut.result()
                 #adjs = package_mxl(adjs, device)
                 input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                 input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
