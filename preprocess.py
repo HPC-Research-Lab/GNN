@@ -37,7 +37,7 @@ def load_data(prefix):
 
 
 def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):
-    print("creating sample matrix")
+    print("creating sample matrix", flush=True)
     adj_matrix_new = adj_matrix + sp.eye(adj_matrix.shape[0])
     num_layers = sum(orders)
     chunk_size = len(train_nodes) // world_size

@@ -30,13 +30,13 @@ parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
-parser.add_argument('--pool_num', type=int, default= 4,
+parser.add_argument('--pool_num', type=int, default= 16,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=512,
+parser.add_argument('--batch_size', type=int, default=2048,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
-parser.add_argument('--samp_num', type=int, default=16384,
+parser.add_argument('--samp_num', type=int, default=8192,
                     help='Number of sampled nodes per layer')
 parser.add_argument('--sample_method', type=str, default='ladies',
                     help='Sampled Algorithms: ladies/fastgcn/full')
@@ -60,7 +60,7 @@ def init_process(rank, device_id, world_size, fn, train_data, backend='nccl'):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group(backend, rank=rank, world_size=world_size)
-    print(f"Rank {rank + 1}/{world_size} process initialized.")
+    print(f"Rank {rank + 1}/{world_size} process initialized.", flush=True)
     fn(rank, device_id, world_size, train_data)
 
 
@@ -90,14 +90,9 @@ def train(rank, device_id, world_size, train_data):
     samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
     sampler = ladies_sampler
 
-
-
-
     if rank == 0:
-        print(args.dataset, args.sample_method)
-        print('sigmoid_loss: ', args.sigmoid_loss)
-        print('batch_size: ', args.batch_size)
-        print('num batch per epoch: ', len(train_nodes) // args.batch_size)
+        print(args, flush=True)
+        print('num batch per epoch: ', len(train_nodes) // args.batch_size, flush=True)
 
 
     for oiter in range(1):
@@ -174,7 +169,7 @@ def train(rank, device_id, world_size, train_data):
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                     loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1))
+                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
@@ -209,7 +204,7 @@ def train(rank, device_id, world_size, train_data):
                 total += len(output_nodes)
 
 
-            print('Test f1 score: %.2f' % (correct / total))
+            print('Test f1 score: %.2f' % (correct / total), flush=True)
         
 
 
@@ -217,7 +212,7 @@ def train(rank, device_id, world_size, train_data):
 if __name__ == "__main__":
 
     devices = [int(i) for i in args.cuda.split(',')]
-    print('gpu devices: ', devices)
+    print('gpu devices: ', devices, flush=True)
     world_size = len(devices)
     processes = []
     torch.multiprocessing.set_start_method('spawn')
