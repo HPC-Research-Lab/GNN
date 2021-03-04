@@ -71,7 +71,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
 iter_num = 0
 def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, buffer_map, buffer_mask, device, scale_factor=1, global_permutation=False, mode='train'):
     global iter_num
-    if mode == 'train' or mode == 'test':
+    if mode == 'train':
         # sample p batches for training
         #print(iter_num)
         iter_num += 1
@@ -104,3 +104,14 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
         batch_nodes = target_nodes[idx]
         futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, 1, device))
         yield from futures
+    elif mode == 'test':
+        num_batches = len(target_nodes) // batch_size
+        if (num_batches % batch_size):
+          num_batches += 1
+        for i in range(0, num_batches, 32):   # 32 is the queue size
+            futures = []
+            for j in range(i, min(32+i, num_batches)):
+                target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device))
+            yield from futures
+

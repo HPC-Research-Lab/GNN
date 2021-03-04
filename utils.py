@@ -28,6 +28,7 @@ import os
 import scipy
 from sklearn.preprocessing import StandardScaler
 from sklearn import metrics
+import torch.distributed as dist
 
 
 def parse_index_file(filename):
@@ -95,7 +96,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
             np.vstack((sparse_mx.row, sparse_mx.col)).astype(np.int64))
     values = torch.from_numpy(sparse_mx.data)
     shape = torch.Size(sparse_mx.shape)
-    return indices, values, shape
+    return torch.sparse.FloatTensor(indices, values, shape)
 
 
 def get_adj(edges, num_nodes):
@@ -164,3 +165,11 @@ def calc_f1(y_true, y_pred,is_sigmoid):
     return metrics.f1_score(y_true, y_pred, average="micro"), metrics.f1_score(y_true, y_pred, average="macro")
 
 
+def average_grad(model):
+        sendbuf = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(model.parameters())), 0)
+        dist.all_reduce(sendbuf)
+
+        start = 0
+        for param in model.parameters():
+            param.grad.data = sendbuf[start:start+param.grad.data.numel()].view(param.grad.data.size())
+            start += param.grad.data.numel()

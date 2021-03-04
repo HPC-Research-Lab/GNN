@@ -30,9 +30,9 @@ parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default= 1000,
                     help='Number of Epoch')
-parser.add_argument('--pool_num', type=int, default= 16,
+parser.add_argument('--pool_num', type=int, default=8,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=2048,
+parser.add_argument('--batch_size', type=int, default=512,
                     help='size of output node in a batch')
 parser.add_argument('--orders', type=str, default='1,0,1,0',
                     help='Layer orders')
@@ -43,15 +43,13 @@ parser.add_argument('--sample_method', type=str, default='ladies',
 parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
+parser.add_argument('--batch_norm', type=bool, default=True)
 parser.add_argument('--buffer_size', type=int, default=10000,
                     help='Number of buffered nodes on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
-parser.add_argument('--update_buffer_period', type=int, default=0,
-                    help='Period of GPU buffer being updated')
 parser.add_argument('--global_permutation', dest='global_permutation', action='store_true')
 parser.set_defaults(global_permutation=False)
-
 
 args = parser.parse_args()
 
@@ -93,17 +91,16 @@ def train(rank, device_id, world_size, train_data):
     if rank == 0:
         print(args, flush=True)
         print('num batch per epoch: ', len(train_nodes) // args.batch_size, flush=True)
+        #print(len(train_nodes))
 
 
     for oiter in range(1):
-        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
+        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, batch_norm=args.batch_norm, dropout=0.1).to(device)
         susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 
-        if args.update_buffer_period > 0:
-            sp_mat = get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size)
-
-        buffer, buffer_map, buffer_mask = create_buffer(np.array(np.sum(adj_matrix, axis=0))[0], feat_data, args.buffer_size, device)
+        sp_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
+        buffer, buffer_map, buffer_mask = create_buffer(sp_prob, feat_data, args.buffer_size, device)
 
         samples = np.zeros(adj_matrix.shape[1])
 
@@ -112,7 +109,9 @@ def train(rank, device_id, world_size, train_data):
         best_tst = -1
         cnt = 0
         execution_time = 0.0
-        back_time = 0.0
+        comm_time = 0.0
+        data_movement_time = 0.0
+
         for epoch in np.arange(args.epoch_num):
             susage.train()
             train_losses = []
@@ -129,6 +128,8 @@ def train(rank, device_id, world_size, train_data):
                 input_feat_data = torch.cuda.FloatTensor(len(gpu_nodes_idx)+len(cpu_nodes_idx), feat_data.shape[1])
                 input_feat_data[feat_gpu_idx] = buffer[gpu_nodes_idx]
                 input_feat_data[feat_cpu_idx] = feat_data[cpu_nodes_idx].to(device)
+                torch.cuda.synchronize()
+                data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
                 loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
@@ -136,24 +137,19 @@ def train(rank, device_id, world_size, train_data):
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
                 # communication is expensive
+                t2 = time.time()
                 if world_size > 1:
-                    for param in susage.parameters():
-                        dist.all_reduce(param.grad.data, op=dist.reduce_op.SUM)
+                    average_grad(susage)
+                
                 optimizer.step()
+
+                torch.cuda.synchronize()
+                execution_time += time.time() - t1
 
                 train_losses += [loss_train.detach().tolist()]
                 del loss_train
 
-                if args.update_buffer_period > 0 and epoch < args.update_buffer_period:
-                    sp_mat = update_sampled_matrix(output_nodes, sampled_cols, sp_mat)
-                    
-                torch.cuda.synchronize()
-                execution_time += time.time() - t1
         
-            if args.update_buffer_period > 0 and epoch == args.update_buffer_period:
-                sp_prob = reorder_and_restart(adj_matrix, train_nodes, sp_mat, rank, world_size)
-                buffer, buffer_map, buffer_mask = create_buffer(sp_prob, feat_data, args.buffer_size, device)
-
             if rank == 0:
                 susage.eval()
                 val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, mode='val')
@@ -169,7 +165,7 @@ def train(rank, device_id, world_size, train_data):
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                     loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
+                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
@@ -182,9 +178,7 @@ def train(rank, device_id, world_size, train_data):
             best_model = torch.load('./save/best_model.pt')
             best_model.eval()
             best_model.cpu()
-            '''
-            If using batch sampling for inference:
-            '''
+
             test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, buffer_map, buffer_mask, device, mode='test')
 
             correct = 0.0
