@@ -23,7 +23,6 @@ class GraphConvolution(nn.Module):
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
         return (out - mean) * self.scale * torch.rsqrt(var) + self.offset 
 
-
 class GCN(nn.Module):
     def __init__(self, nfeat, nhid, orders, dropout):
         super(GCN, self).__init__()

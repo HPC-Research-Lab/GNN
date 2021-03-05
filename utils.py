@@ -29,6 +29,7 @@ import scipy
 from sklearn.preprocessing import StandardScaler
 from sklearn import metrics
 import torch.distributed as dist
+import yaml
 
 
 def parse_index_file(filename):
@@ -173,3 +174,8 @@ def average_grad(model):
         for param in model.parameters():
             param.grad.data = sendbuf[start:start+param.grad.data.numel()].view(param.grad.data.size())
             start += param.grad.data.numel()
+
+def load_yaml(filepath):
+    with open(filepath, 'r') as f:
+        data = yaml.load(f)
+    return data
