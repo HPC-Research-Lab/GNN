@@ -2,6 +2,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils import *
 import torch.distributed as dist
 import subprocess
+from itertools import groupby 
+
 
 
 def load_data(prefix):
@@ -119,3 +121,58 @@ def reorder_and_restart(adj_matrix, train_nodes, sp_mat, rank, world_size):
             sp_prob[k[1]] += v
     
     return sp_prob
+
+# TODO
+def collect_samples(sp_mat_coo, output_nodes, sampled_cols):
+    for sc in sampled_cols:
+        x, y = np.meshgrid(output_nodes, sc)
+        x = x.flatten()
+        y = y.flatten()
+        sp_mat_coo.extend(list(zip(x, y)))
+
+    #(k, sum(1 for x in v)) for k, v in groupby(sorted(zip(x,y)))]
+
+# TODO
+def merge_samples(sp_mat_coo, nrows, ncols, train_nodes, rank, world_size):
+    if rank == 0:
+        with open('reorder/.sp_mat_coo.txt', 'w') as f:
+            f.write(f'{nrows} {ncols}''\n')
+    dist.barrier()
+
+    with open('reorder/.sp_mat_coo.txt', 'a') as f:
+        for k, v in groupby(sorted(sp_mat_coo)):
+            c = sum(1 for x in v)
+            f.write(f'{k[0]} {k[1]} {c}''\n')
+    dist.barrier()
+
+    if world_size > 1 and rank == 0:
+        subprocess.run(["make", "-C", "reorder"])
+        subprocess.run(["reorder/reorder", "reorder/.sp_mat_coo.txt", "reorder/.reordered_nodes.txt"])
+    dist.barrier()
+
+    if world_size > 1:
+        with open('reorder/.reordered_nodes.txt', 'r') as f:
+            train_nodes = np.array([int(i) for i in f.readlines()])
+            assert(len(np.unique(train_nodes)) == nrows)
+        chunk_size = len(train_nodes) // world_size
+        if (len(train_nodes) % world_size):
+            chunk_size += 1
+        chunk_start = rank * chunk_size
+        chunk_end = min((rank+1)*chunk_size, len(train_nodes))
+        train_nodes_chunk = set(train_nodes[chunk_start:chunk_end])
+        sp_prob = np.zeros(ncols)
+        with open('reorder/.sp_mat_coo.txt', 'r') as f:
+            for l in f.readlines():
+                a, b, c = map(int, l.split())
+                if a in train_nodes_chunk:
+                    sp_prob[b] += c
+
+    else:
+        sp_prob = np.zeros(ncols)
+        with open('reorder/.sp_mat_coo.txt', 'r') as f:
+            for l in f.readlines():
+                a, b, c = map(int, l.split())
+                sp_prob[b] += c
+        
+
+    return train_nodes, sp_prob

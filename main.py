@@ -100,7 +100,6 @@ def train(rank, device_id, world_size, train_data):
         sp_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
         buffer, buffer_map, buffer_mask = create_buffer(sp_prob, feat_data, args.buffer_size, device)
 
-        samples = np.zeros(adj_matrix.shape[1])
 
         optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
         best_val = 0
