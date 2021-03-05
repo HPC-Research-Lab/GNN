@@ -43,13 +43,11 @@ parser.add_argument('--sample_method', type=str, default='ladies',
 parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
-parser.add_argument('--batch_norm', type=bool, default=True)
+parser.add_argument('--global_permutation', type=bool, default=True)
 parser.add_argument('--buffer_size', type=int, default=10000,
                     help='Number of buffered nodes on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
-parser.add_argument('--global_permutation', dest='global_permutation', action='store_true')
-parser.set_defaults(global_permutation=False)
 
 args = parser.parse_args()
 
@@ -95,7 +93,7 @@ def train(rank, device_id, world_size, train_data):
 
 
     for oiter in range(1):
-        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, batch_norm=args.batch_norm, dropout=0.1).to(device)
+        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
         susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 

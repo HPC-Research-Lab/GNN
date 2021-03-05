@@ -40,13 +40,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.    
         p[previous_nodes] = 0  
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
-        adj = adj.tocoo().astype(np.float32)
-        row, col, value = torch.from_numpy(adj.row.astype(np.int32)).to(device), torch.from_numpy(adj.col.astype(np.int32)).to(device), torch.from_numpy(adj.data).to(device)
-        sorted_idx = torch.argsort(row)
-        row = row[sorted_idx]
-        col = col[sorted_idx]
-        value = value[sorted_idx]
-        adjs += [(row, col, value, len(previous_nodes), len(after_nodes))]
+        adj = sparse_mx_to_torch_sparse_tensor(adj.tocoo().astype(np.float32)).to(device).coalesce()
+        adjs.append(adj)
 
         sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
         sampled_cols.append(after_nodes.copy())

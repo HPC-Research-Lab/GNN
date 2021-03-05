@@ -12,12 +12,12 @@ spmm_backward_time = 0.0
 
 class SparseDenseMM(torch.autograd.Function):
   @staticmethod
-  def forward(ctx, row, col, value, nrows, ncols, mat2):
+  def forward(ctx, mat1, mat2):
     global spmm_forward_time
-    ctx.save_for_backward(row, col, value, torch.IntTensor([ncols]))
+    ctx.save_for_backward(mat1)
     torch.cuda.synchronize()
     t1 = time.time()
-    output = spmm_cpp.spmm(row, col, value, nrows, mat2)
+    output = spmm_cpp.spmm_load_balance(mat1, mat2)
     torch.cuda.synchronize()
     spmm_forward_time += time.time() - t1
     return output
@@ -27,16 +27,11 @@ class SparseDenseMM(torch.autograd.Function):
     global spmm_backward_time
     torch.cuda.synchronize()
     t1 = time.time()
-    row, col, value, ncols = ctx.saved_tensors
-    sorted_idx = torch.argsort(col)
-    col = col[sorted_idx]
-    row = row[sorted_idx]
-    value = value[sorted_idx]
-    ncols = ncols.item()
-    grad_mat2 = spmm_cpp.spmm(col, row, value, ncols, grad_output.contiguous())
+    mat1, = ctx.saved_tensors
+    grad_mat2 = spmm_cpp.spmm_load_balance(mat1.transpose(0,1).coalesce(), grad_output.contiguous())
     torch.cuda.synchronize()
     spmm_backward_time += time.time() - t1
-    return None, None, None, None, None, grad_mat2
+    return None, grad_mat2
 
 
 
