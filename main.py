@@ -48,6 +48,7 @@ parser.add_argument('--buffer_size', type=int, default=10000,
                     help='Number of buffered nodes on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
+parser.add_argument('--random_buffer', action='store_true')
 
 args = parser.parse_args()
 
@@ -97,7 +98,10 @@ def train(rank, device_id, world_size, train_data):
         susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 
-        sp_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
+        if not args.random_buffer:
+            sp_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
+        else:
+            sp_prob = np.random.rand(adj_matrix.shape[1])
         buffer, buffer_map, buffer_mask = create_buffer(sp_prob, feat_data, args.buffer_size, device)
 
 
