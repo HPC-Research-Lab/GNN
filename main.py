@@ -230,7 +230,7 @@ if __name__ == "__main__":
     train_data = load_data(args.dataset)
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, method='identical')
   
 
     for rank in range(world_size):
