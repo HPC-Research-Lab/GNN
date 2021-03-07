@@ -35,7 +35,7 @@ def load_data(prefix):
         for k,v in class_map.items():
             class_arr[k][v-offset] = 1
 
-    return (adj_full, class_arr, feats, num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+    return (adj_full, class_arr, torch.FloatTensor(feats), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
 
 def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):
@@ -67,17 +67,34 @@ def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):
 
 
 # the columns of sample_matrix must be all nodes
-def create_buffer(sample_prob, feat_data, buffer_size, device):
-    #print(col_sum)
-    #print(args.buffer_size)
+def create_buffer(train_data, buffer_size, devices):
+    
+    adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+
+    sample_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
+
     buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
-    buffer = feat_data[buffered_nodes].to(device)
-    #print('GPU buffer created, size: ', len(buffered_nodes))
-    buffer_map = np.arange(len(sample_prob))
-    buffer_map[buffered_nodes] = np.arange(len(buffered_nodes))
-    buffer_mask = np.array([False] * len(sample_prob))
-    buffer_mask[buffered_nodes] = True
-    return buffer, buffer_map, buffer_mask
+    num_devs = len(devices)
+    num_nodes_per_dev = len(buffered_nodes) // num_devs
+    if len(buffered_nodes) % num_devs != 0:
+        num_nodes_per_dev += 1
+    
+    gpu_buffers = []
+    device_id_of_nodes = np.array([-1] * adj_matrix.shape[1])
+    idx_of_nodes_on_device = np.arange(adj_matrix.shape[1])
+    for i in range(num_devs):
+        start = i * num_nodes_per_dev
+        end = min(start + num_nodes_per_dev, len(buffered_nodes))
+        buffered_nodes_on_dev_i = buffered_nodes[start:end]
+        gpu_buffers.append(feat_data[buffered_nodes_on_dev_i].to(devices[i]))
+        device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
+        idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
+
+    
+    device_id_of_nodes_group = [device_id_of_nodes] * num_devs
+    idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+
+    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
 
 
 def update_sampled_matrix(output_nodes, sampled_cols, sp_mat):

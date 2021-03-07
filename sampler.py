@@ -1,6 +1,6 @@
 from utils import *
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, device):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -26,7 +26,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     Only use the upper layer's neighborhood to calculate the probability.
         pi = scipy.sparse.linalg.norm(U, ord=0, axis=0)
         if scale_factor > 1:
-            pi[buffer_mask == True] = pi[buffer_mask == True] * scale_factor 
+            nodes_on_gpu = (device_id_of_nodes >= 0)
+            pi[nodes_on_gpu] = pi[nodes_on_gpu] * scale_factor 
         #pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
         samp_num_d = samp_num_list[d]
@@ -53,18 +54,16 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     #if len(sampling_time) == 1:
      #   sampling_time[0] += time.time() - t1
 
-    input_nodes_idx = buffer_map[previous_nodes]
-    input_nodes_mask = buffer_mask[previous_nodes]
-    feat_gpu_idx = input_nodes_mask == True
-    feat_cpu_idx = input_nodes_mask == False
-    gpu_nodes_idx = input_nodes_idx[feat_gpu_idx]
-    cpu_nodes_idx = input_nodes_idx[feat_cpu_idx]
+    #input_nodes_idx = idx_of_nodes_on_device[previous_nodes]
+    #input_nodes_device = device_id_of_nodes[previous_nodes]
+    #feat_cpu_idx = (input_nodes_device == -1)
+    #cpu_nodes_idx = input_nodes_idx[feat_cpu_idx]
     
-    return adjs, gpu_nodes_idx, cpu_nodes_idx, feat_gpu_idx, feat_cpu_idx, batch_nodes, sampled_nodes, sampled_cols
+    return adjs, device_id_of_nodes[previous_nodes], previous_nodes, batch_nodes, sampled_nodes, sampled_cols
 
 
 iter_num = 0
-def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, buffer_map, buffer_mask, device, scale_factor=1, global_permutation=False, mode='train'):
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, scale_factor=1, global_permutation=False, mode='train'):
     global iter_num
     if mode == 'train':
         # sample p batches for training
@@ -90,14 +89,14 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, device))
             yield from futures
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(target_nodes))[:batch_size]
         batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, 1, device))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, 1, device))
         yield from futures
     elif mode == 'test':
         num_batches = len(target_nodes) // batch_size
@@ -107,6 +106,6 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, buffer_map, buffer_mask, scale_factor, device))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, device))
             yield from futures
 
