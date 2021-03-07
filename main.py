@@ -122,10 +122,10 @@ def train(rank, devices, world_size, train_data, buffer):
                 
                 input_feat_data = torch.cuda.FloatTensor(len(input_nodes), feat_data.shape[1])
 
-                for dev in devices:
-                    input_nodes_mask_on_dev = (input_nodes_devices == dev)
+                for i in range(world_size):
+                    input_nodes_mask_on_dev = (input_nodes_devices == devices[i])
                     nodes_idx_on_dev = idx_of_nodes_on_device[input_nodes[input_nodes_mask_on_dev]]
-                    input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[dev][nodes_idx_on_dev].to(device)
+                    input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
                 
                 input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device)
@@ -160,10 +160,10 @@ def train(rank, devices, world_size, train_data, buffer):
                     #adjs = package_mxl(adjs, device)
                     input_feat_data = torch.cuda.FloatTensor(len(input_nodes), feat_data.shape[1])
 
-                    for dev in devices:
-                        input_nodes_mask_on_dev = (input_nodes_devices == dev)
+                    for i in range(world_size):
+                        input_nodes_mask_on_dev = (input_nodes_devices == devices[i])
                         nodes_idx_on_dev = idx_of_nodes_on_device[input_nodes[input_nodes_mask_on_dev]]
-                        input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[dev][nodes_idx_on_dev].to(device)
+                        input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
                 
                 
                     input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
@@ -198,10 +198,10 @@ def train(rank, devices, world_size, train_data, buffer):
                 #adjs = package_mxl(adjs, device)
                 input_feat_data = torch.cuda.FloatTensor(len(input_nodes), feat_data.shape[1])
 
-                for dev in devices:
-                    input_nodes_mask_on_dev = (input_nodes_devices == dev)
+                for i in range(world_size):
+                    input_nodes_mask_on_dev = (input_nodes_devices == devices[i])
                     nodes_idx_on_dev = idx_of_nodes_on_device[input_nodes[input_nodes_mask_on_dev]]
-                    input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[dev][nodes_idx_on_dev].to(device)
+                    input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
             
                 input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device)
