@@ -51,6 +51,8 @@ parser.add_argument('--buffer_size', type=int, default=10000,
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--random_buffer', action='store_true')
+parser.add_argument('--buffering_method', type=str, default='identical')
+
 
 args = parser.parse_args()
 
@@ -230,7 +232,7 @@ if __name__ == "__main__":
     train_data = load_data(args.dataset)
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, method='identical')
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, method=args.buffering_method)
   
 
     for rank in range(world_size):
