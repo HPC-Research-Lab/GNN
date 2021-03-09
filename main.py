@@ -130,10 +130,10 @@ def train(rank, devices, world_size, train_data, buffer):
                     input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
                 
                 input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
 
-                torch.cuda.synchronize()
-                data_movement_time += time.time() - t1
+                #torch.cuda.synchronize()
+                #data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
                 loss_train.backward()
@@ -169,7 +169,7 @@ def train(rank, devices, world_size, train_data, buffer):
                 
                 
                     input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
-                    input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device)
+                    input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
                     #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
@@ -180,8 +180,6 @@ def train(rank, devices, world_size, train_data, buffer):
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
-
-    
                     
                     
 
@@ -206,7 +204,7 @@ def train(rank, devices, world_size, train_data, buffer):
                     input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
             
                 input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
                     
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)

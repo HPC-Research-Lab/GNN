@@ -35,7 +35,7 @@ def load_data(prefix):
         for k,v in class_map.items():
             class_arr[k][v-offset] = 1
 
-    return (adj_full, class_arr, torch.FloatTensor(feats), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+    return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
 
 def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):

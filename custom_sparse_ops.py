@@ -15,22 +15,22 @@ class SparseDenseMM(torch.autograd.Function):
   def forward(ctx, mat1, mat2):
     global spmm_forward_time
     ctx.save_for_backward(mat1)
-    torch.cuda.synchronize()
-    t1 = time.time()
+    #torch.cuda.synchronize()
+    #t1 = time.time()
     output = spmm_cpp.spmm_load_balance(mat1, mat2)
-    torch.cuda.synchronize()
-    spmm_forward_time += time.time() - t1
+    #torch.cuda.synchronize()
+    #spmm_forward_time += time.time() - t1
     return output
 
   @staticmethod
   def backward(ctx, grad_output):
     global spmm_backward_time
-    torch.cuda.synchronize()
-    t1 = time.time()
+    #torch.cuda.synchronize()
+    #t1 = time.time()
     mat1, = ctx.saved_tensors
     grad_mat2 = spmm_cpp.spmm_load_balance(mat1.transpose(0,1).coalesce(), grad_output.contiguous())
-    torch.cuda.synchronize()
-    spmm_backward_time += time.time() - t1
+    #torch.cuda.synchronize()
+    #spmm_backward_time += time.time() - t1
     return None, grad_mat2
 
 
