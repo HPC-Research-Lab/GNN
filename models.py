@@ -8,17 +8,19 @@ class GraphConvolution(nn.Module):
         super(GraphConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
-        self.linear = nn.Linear(n_in,  n_out)
-        self.offset = nn.Parameter(torch.zeros(n_out))
-        self.scale = nn.Parameter(torch.ones(n_out))
+        self.linearW = nn.Linear(n_in,  n_out)
+        self.linearB = nn.Linear(n_in,  n_out)
+        self.offset = nn.Parameter(torch.zeros((1+order)*n_out))
+        self.scale = nn.Parameter(torch.ones((1+order)*n_out))
         self.order = order
     def forward(self, x, adj, sampled_nodes):
-        feat = x
         if self.order > 0:
             #profile(adj._indices())
-            feat = custom_sparse_ops.spmm(adj, feat)
-            feat = torch.cat([x[sampled_nodes], feat], 1)
-        out = F.elu(self.linear(feat))
+            feat = custom_sparse_ops.spmm(adj, x)
+            feat = torch.cat([self.linearB(x[sampled_nodes]), self.linearW(feat)], 1)
+        else:
+            feat = self.linearW(x)
+        out = F.elu(feat)
         mean = out.mean(dim=1).view(out.shape[0],1)
         var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9
         return (out - mean) * self.scale * torch.rsqrt(var) + self.offset 
@@ -29,10 +31,10 @@ class GCN(nn.Module):
         layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConvolution((1+orders[0])*nfeat,  nhid, orders[0]))
+        self.gcs.append(GraphConvolution(nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConvolution((1+orders[i+1])*nhid,  nhid, orders[i+1]))
+            self.gcs.append(GraphConvolution((1+orders[i])*nhid,  nhid, orders[i+1]))
     def forward(self, x, adjs, sampled_nodes):
         '''
             The difference here with the original GCN implementation is that
