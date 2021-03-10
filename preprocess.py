@@ -102,10 +102,9 @@ def create_buffer(train_data, buffer_size, devices, alpha=1):
             device_id_of_nodes_group[i % num_devs][node_to_be_replaced] = num_devs - 1 - i //  (num_devs - 1) % num_devs
             gpu_buffer_group[i % num_devs][num_nodes_per_dev - 1 - i // (num_devs - 1)] = candidate_node 
         else:
-            print("change_num")
-            print(i)
             break
-    
+            
+    print("change_num: ", i)
 
     gpu_buffers = []
     for i in range(num_devs):
