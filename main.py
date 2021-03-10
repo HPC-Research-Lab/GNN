@@ -172,7 +172,6 @@ def train(rank, devices, world_size, train_data, buffer):
                     input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
-                    #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                     loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
