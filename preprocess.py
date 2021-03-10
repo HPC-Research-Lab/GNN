@@ -67,7 +67,7 @@ def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):
 
 
 # the columns of sample_matrix must be all nodes
-def create_buffer(train_data, buffer_size, devices, method='partition'):
+def create_buffer(train_data, buffer_size, devices, alpha=1):
     
     adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
 
@@ -80,66 +80,38 @@ def create_buffer(train_data, buffer_size, devices, method='partition'):
     if len(buffered_nodes) % num_devs != 0:
         num_nodes_per_dev += 1
 
-    if method == 'partition':
-        gpu_buffers = []
-        device_id_of_nodes = np.array([-1] * adj_matrix.shape[1])
-        idx_of_nodes_on_device = np.arange(adj_matrix.shape[1])
-        for i in range(num_devs):
-            buffered_nodes_on_dev_i = buffered_nodes[i::num_devs]
-            gpu_buffers.append(feat_data[buffered_nodes_on_dev_i].to(devices[i]))
-            device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
-            idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
-
-        
-        device_id_of_nodes_group = [device_id_of_nodes] * num_devs
-        idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+    gpu_buffer_group = []
+    device_id_of_nodes = np.array([-1] * adj_matrix.shape[1])
+    idx_of_nodes_on_device = np.arange(adj_matrix.shape[1])
+    for i in range(num_devs):
+        gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
+        buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
+        device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
+        idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
     
-    elif method == 'identical':
-        gpu_buffers = []
-        device_id_of_nodes = np.array([-1] * adj_matrix.shape[1])
-        idx_of_nodes_on_device = np.arange(adj_matrix.shape[1])
-        for i in range(num_devs):
-            buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
-            gpu_buffers.append(feat_data[buffered_nodes_on_dev_i].to(devices[i]))
-            device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
-            idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
-        
-        device_id_of_nodes_group = [device_id_of_nodes] * num_devs
-        idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+    device_id_of_nodes_group = [device_id_of_nodes] * num_devs
+    idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+    # for example num_devs=4, num_nodes_per_dev=m
+    for i in range(len(buffered_nodes) - num_nodes_per_dev):
+        candidate_node = buffered_nodes[num_nodes_per_dev + i]
+        node_to_be_replaced = buffered_nodes[num_nodes_per_dev - 1 - i // (num_devs - 1)]
+        if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
+            for j in range(num_devs):
+                device_id_of_nodes_group[j][candidate_node] = devices[i % num_devs]
+                idx_of_nodes_on_device_group[j][candidate_node] = num_nodes_per_dev - 1 - i // (num_devs - 1)
+            device_id_of_nodes_group[i % num_devs][node_to_be_replaced] = num_devs - 1 - i //  (num_devs - 1) % num_devs
+            gpu_buffer_group[i % num_devs][num_nodes_per_dev - 1 - i // (num_devs - 1)] = candidate_node 
+        else:
+            print("change_num")
+            print(i)
+            break
     
-    elif method == 'multi':
-        alpha = 0.5
-        gpu_buffers = []
-        gpu_buffer_group = []
-        device_id_of_nodes_group = []
-        device_id_of_nodes = np.array([-1] * adj_matrix.shape[1])
-        idx_of_nodes_on_device = np.arange(adj_matrix.shape[1])
-        for i in range(num_devs):
-            gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
-            buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
-            device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
-            idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
-        
-        device_id_of_nodes_group = [device_id_of_nodes] * num_devs
-        idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
-        # for example num_devs=4, num_nodes_per_dev=m
-        for i in range(len(buffered_nodes) - num_nodes_per_dev):
-            candidate_node = buffered_nodes[num_nodes_per_dev + i]
-            node_to_be_replaced = buffered_nodes[num_nodes_per_dev - 1 - i // (num_devs - 1)]
-            if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
-                for j in range(num_devs):
-                    device_id_of_nodes_group[j][candidate_node] = devices[i % num_devs]
-                    idx_of_nodes_on_device_group[j][candidate_node] = num_nodes_per_dev - 1 - i // (num_devs - 1)
-                device_id_of_nodes_group[i % num_devs][node_to_be_replaced] = num_devs - 1 - i //  (num_devs - 1) % num_devs
-                gpu_buffer_group[i % num_devs][num_nodes_per_dev - 1 - i // (num_devs - 1)] = candidate_node 
-            else:
-                print("change_num")
-                print(i)
-                break
-        for i in range(num_devs):
-            gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
 
-        print(gpu_buffer_group)
+    gpu_buffers = []
+    for i in range(num_devs):
+        gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
+
+    print(gpu_buffer_group)
 
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
 
