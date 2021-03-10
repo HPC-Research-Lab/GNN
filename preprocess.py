@@ -72,6 +72,7 @@ def create_buffer(train_data, buffer_size, devices, alpha=1):
     adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
 
     sample_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
+    print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
 
     buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
 
