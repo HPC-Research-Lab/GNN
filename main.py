@@ -111,9 +111,9 @@ def train(rank, devices, world_size, train_data, buffer):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
-                adjs, input_nodes_devices, input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
 
                 optimizer.zero_grad()
                 susage.train()
@@ -121,16 +121,12 @@ def train(rank, devices, world_size, train_data, buffer):
                 torch.cuda.synchronize()
                 t1 = time.time()
 
-                
-                input_feat_data = torch.cuda.FloatTensor(len(input_nodes), feat_data.shape[1])
+                input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
-                    input_nodes_mask_on_dev = (input_nodes_devices == devices[i])
-                    nodes_idx_on_dev = idx_of_nodes_on_device[input_nodes[input_nodes_mask_on_dev]]
-                    input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
+                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 
-                input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
 
                 torch.cuda.synchronize()
                 data_movement_time += time.time() - t1
@@ -155,21 +151,17 @@ def train(rank, devices, world_size, train_data, buffer):
         
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, mode='val')
+                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='val')
 
                 for fut in as_completed(val_data):    
-                    adjs, input_nodes_devices, input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
+                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
                     #adjs = package_mxl(adjs, device)
-                    input_feat_data = torch.cuda.FloatTensor(len(input_nodes), feat_data.shape[1])
+                    input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                     for i in range(world_size):
-                        input_nodes_mask_on_dev = (input_nodes_devices == devices[i])
-                        nodes_idx_on_dev = idx_of_nodes_on_device[input_nodes[input_nodes_mask_on_dev]]
-                        input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
-                
-                
-                    input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
-                    input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
+                        input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                    
+                    input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -187,23 +179,19 @@ def train(rank, devices, world_size, train_data, buffer):
             best_model.eval()
             best_model.cpu()
 
-            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
             correct = 0.0
             total = 0.0
 
             for fut in as_completed(test_data):    
-                adjs, input_nodes_devices, input_nodes, output_nodes, sampled_nodes, sample_cols = fut.result()
-                #adjs = package_mxl(adjs, device)
-                input_feat_data = torch.cuda.FloatTensor(len(input_nodes), feat_data.shape[1])
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
+                input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
-                    input_nodes_mask_on_dev = (input_nodes_devices == devices[i])
-                    nodes_idx_on_dev = idx_of_nodes_on_device[input_nodes[input_nodes_mask_on_dev]]
-                    input_feat_data[input_nodes_mask_on_dev] = gpu_buffers[i][nodes_idx_on_dev].to(device)
-            
-                input_nodes_mask_on_cpu = (input_nodes_devices == -1) 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[input_nodes[input_nodes_mask_on_cpu]].to(device, non_blocking=True)
+                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
                     
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
