@@ -27,7 +27,9 @@ parser = argparse.ArgumentParser(description='Training GCN on Cora/CiteSeer/PubM
     Dataset arguments
 '''
 parser.add_argument('--dataset', type=str, default='data/ppi',
-                    help='Dataset name: ppi/reddit')
+                    help='Dataset name: ppi/reddit/amazon')
+parser.add_argument('--model', type=str, default='graphsage',
+                    help='GNN model: graphsage/gcn')
 parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default= 1000,
@@ -76,7 +78,10 @@ def train(rank, devices, world_size, train_data, buffer):
 
     device_id_of_nodes, idx_of_nodes_on_device, gpu_buffers = buffer
 
-    lap_matrix = row_normalize(adj_matrix)
+    if args.model == 'graphsage':
+        lap_matrix = row_normalize(adj_matrix)
+    elif args.model == 'gcn':
+        lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
 
     if args.sigmoid_loss == True:
         labels_full = torch.from_numpy(class_arr).to(device)
@@ -95,8 +100,12 @@ def train(rank, devices, world_size, train_data, buffer):
 
 
     for oiter in range(1):
-        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
-        susage  = SuGCN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
+        if args.model == 'graphsage':
+            encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
+        elif args.model == 'gcn':
+            encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
+
+        susage  = GNN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 
         optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
@@ -113,7 +122,7 @@ def train(rank, devices, world_size, train_data, buffer):
 
             train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
 
                 optimizer.zero_grad()
                 susage.train()
@@ -154,7 +163,7 @@ def train(rank, devices, world_size, train_data, buffer):
                 val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='val')
 
                 for fut in as_completed(val_data):    
-                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
+                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
                     #adjs = package_mxl(adjs, device)
                     input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
@@ -185,7 +194,7 @@ def train(rank, devices, world_size, train_data, buffer):
             total = 0.0
 
             for fut in as_completed(test_data):    
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes, sampled_cols = fut.result()
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):

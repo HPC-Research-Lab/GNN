@@ -1,5 +1,6 @@
 from utils import *
 
+
 def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, device, devices):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
@@ -11,7 +12,6 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     adjs  = []
     orders1 = orders[::-1]
     sampled_nodes = []
-    sampled_cols = []
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
@@ -19,7 +19,6 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         if (orders1[d] == 0):
             adjs.append(None)
             sampled_nodes.append([])
-            sampled_cols.append([])
             continue
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
@@ -45,7 +44,6 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         adjs.append(adj)
 
         sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
-        sampled_cols.append(after_nodes.copy())
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
@@ -63,7 +61,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         input_nodes_mask_on_devices.append(input_nodes_devices == devices[i])
         nodes_idx_on_devices.append(idx_of_nodes_on_device[previous_nodes[input_nodes_mask_on_devices[i]]].copy())
 
-    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), batch_nodes, sampled_nodes, sampled_cols
+    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), batch_nodes, sampled_nodes
 
 
 iter_num = 0
