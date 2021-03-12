@@ -143,43 +143,6 @@ torch::Tensor spmm_cuda_v1(torch::Tensor sparseMat, torch::Tensor denseMat) {
 
   cudaDeviceSynchronize();
 
-  //std::cout << rowptr << std::endl;
-
-  //std::cout << resMat.device() << std::endl;
-
-  // get the virtual rowptr
-  /*
-	   int nrows_a_virtual = 0;
-	   int rowptr_size = nrow_a + nnz_a / NNZ_PER_CHUNK + 1;
-	   torch::Tensor rowptr = torch::empty({rowptr_size}, indices.options());
-
-	   rowptr[0] = 0;
-	   int64_t pre_r = -1;
-	   int cur = 0;
-	   for (int i = 0; i< indices.size(1); i++) {
-	   int64_t ridx = indices[0][i].item<int64_t>();
-	   if (ridx == pre_r) {
-	   cur += 1;
-	   if (cur >= NNZ_PER_CHUNK) {
-	   rowptr[nrows_a_virtual] = i;
-	   cur = 0;
-	   nrows_a_virtual++;
-	   }
-	   } else {
-	   rowptr[nrows_a_virtual] = i; 	
-	   pre_r = ridx;
-	   cur = 0;
-	   nrows_a_virtual++;
-	   }
-	   }
-	   rowptr[nrows_a_virtual] = indices.size(1);*/
-
-  /*for (int i=0; i<nrows_a_virtual+1; i++) {
-	  std::cout << rowptr[i] << std::endl;
-	  }*/
-
-  //	std::cout << nbx << " " << nby << std::endl;
-
   //std::cout << resMat.sizes() << std::endl;
   if (denseMat.size(1) >= 64) {
     dim3 nthreads_spmm(32, SROW_PER_TILE);
@@ -301,24 +264,7 @@ __global__ void _calc_rowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::Re
   }
 }
 
-/*
-__global__ void _count_virtual_rows(const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr, torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowpos) {
-  __shared__ int psum[1024];
-  int tid = threadIdx.x + blockIdx.x * 1024;
-  if (tid < rowptr.size(0) - 1) {
-    psum[threadIdx.x] = DIV(rowptr[tid + 1] - rowptr[tid], NNZ_PER_CHUNK);
-    int stride = 512;
-    while (stride >= 1) {
-      if (threadIdx.x < (stride << 1) && threadIdx.x >= stride) {
-        psum[threadIdx.x - stride] += psum[threadIdx.x];
-      }
-      __syncthreads();
-      stride = (stride >> 1);
-    }
-    if (threadIdx.x == 0) atomicAdd(sum, psum[0]);
-  }
-}
-*/
+
 
 __global__ void _calc_vrowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vrowptr, const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowpos, const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr) {
   int r = threadIdx.x + blockIdx.x * 1024;

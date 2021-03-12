@@ -40,6 +40,6 @@ torch::Tensor spmm_naive(torch::Tensor sparseMat, torch::Tensor denseMat) {
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-	m.def("spmm", &spmm, "Sparse-Dense Matrix Multiplication");
+	m.def("spmm_naive", &spmm_naive, "Sparse-Dense Matrix Multiplication");
 	m.def("spmm_load_balance", &spmm_load_balance, "Sparse-Dense Matrix Multiplication");
 }
