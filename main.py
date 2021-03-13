@@ -80,8 +80,10 @@ def train(rank, devices, world_size, train_data, buffer):
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(adj_matrix)
+        concat = True
     elif args.model == 'gcn':
         lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
+        concat = False
 
 
     orders = args.orders.split(',')
@@ -116,7 +118,7 @@ def train(rank, devices, world_size, train_data, buffer):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
 
@@ -156,7 +158,7 @@ def train(rank, devices, world_size, train_data, buffer):
         
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='val')
+                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, mode='val')
 
                 for fut in as_completed(val_data):    
                     adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
@@ -184,7 +186,7 @@ def train(rank, devices, world_size, train_data, buffer):
             best_model.eval()
             best_model.cpu()
 
-            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, mode='test')
 
             correct = 0.0
             total = 0.0
@@ -219,7 +221,7 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_ogbn_data(args.dataset)
+    train_data = load_graphsaint_data(args.dataset)
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
     device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, alpha=args.alpha)
