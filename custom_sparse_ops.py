@@ -36,56 +36,6 @@ class SparseDenseMM(torch.autograd.Function):
     return None, grad_mat2
 
 
-
 spmm = SparseDenseMM.apply
 
-## Testing
-""" for i in range(200):
-  print(f"testing {i}")
-  nc = np.random.randint(100, 2000)
-  print(f'nc {nc}')
-  a = torch.randn(np.random.randint(100,2000), nc).to_sparse().cuda()
-  b = torch.randn(nc, np.random.randint(1,2000)).cuda()
-  #print(a)
-  #print(b)
-  y = spmm(a, b)
-  #print(y)
-  #print(a.mm(b))
-  print(torch.norm(y - a.mm(b)))
-  assert(torch.norm(y - a.mm(b)) < 0.1) """
- 
-#print(a.mm(b))
-
-#y.sum().backward()
-#print(b.grad)
-
-#from multiprocessing import Pool
-
-#def f(i, j):
-#  return i + j
-
-
-#with Pool(5) as pool:
-#  res = pool.starmap(f, [(i, i*i) for i in range(10)])
-#  print(res)
-
-
-#from concurrent.futures import ThreadPoolExecutor, as_completed
-
-#def f(i, j):
-#  return i + j
-
-
-#args = [(i, i*i) for i in range(10)]
-
-#def gen():
-#  futures = []
-#  with ThreadPoolExecutor(max_workers=8) as executor:
-#    for i in range(10):
-#      futures.append(executor.submit(f, i, i*i))
-#  return futures
-  
-
-#for fut in as_completed(gen()):
-#  print(fut.result())
 

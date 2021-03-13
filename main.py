@@ -32,7 +32,7 @@ parser.add_argument('--model', type=str, default='graphsage',
                     help='GNN model: graphsage/gcn')
 parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
-parser.add_argument('--epoch_num', type=int, default= 1000,
+parser.add_argument('--epoch_num', type=int, default= 20,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default=8,
                     help='Number of Pool')
@@ -48,13 +48,13 @@ parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
 parser.add_argument('--global_permutation', type=bool, default=True)
-parser.add_argument('--buffer_size', type=int, default=10000,
+parser.add_argument('--buffer_size', type=int, default=250000,
                     help='Number of buffered nodes on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--random_buffer', action='store_true')
 parser.add_argument('--alpha', type=float, default=1.0)
-parser.add_argument('--sampler', type=str, default='subgraph')
+parser.add_argument('--sampler', type=str, default='ladies')
 
 
 args = parser.parse_args()
