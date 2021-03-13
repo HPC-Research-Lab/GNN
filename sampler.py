@@ -23,7 +23,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
         #     Only use the upper layer's neighborhood to calculate the probability.
-        pi = scipy.sparse.linalg.norm(U, ord=0, axis=0)
+        pi = sp.linalg.norm(U, ord=0, axis=0)
         if scale_factor > 1:
             nodes_on_this_gpu = (device_id_of_nodes == device)
             pi[nodes_on_this_gpu] = pi[nodes_on_this_gpu] * scale_factor 

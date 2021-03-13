@@ -74,7 +74,7 @@ def train(rank, devices, world_size, train_data, buffer):
 
     pool = ThreadPoolExecutor(max_workers=args.pool_num) 
         
-    adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+    adj_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
 
     device_id_of_nodes, idx_of_nodes_on_device, gpu_buffers = buffer
 
@@ -83,10 +83,6 @@ def train(rank, devices, world_size, train_data, buffer):
     elif args.model == 'gcn':
         lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
 
-    if args.sigmoid_loss == True:
-        labels_full = torch.from_numpy(class_arr).to(device)
-    else:
-        labels_full = torch.from_numpy(class_arr.argmax(axis=1).astype(np.int64)).to(device)
 
     orders = args.orders.split(',')
     orders = [int(t) for t in orders]
@@ -140,7 +136,7 @@ def train(rank, devices, world_size, train_data, buffer):
                 torch.cuda.synchronize()
                 data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
-                loss_train = loss(output, labels_full[output_nodes], args.sigmoid_loss, device)
+                loss_train = loss(output, torch.from_numpy(labels_full[output_nodes].todense()).to(device), args.sigmoid_loss, device)
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
@@ -174,8 +170,8 @@ def train(rank, devices, world_size, train_data, buffer):
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-                    loss_valid = loss(output, labels_full[output_nodes], args.sigmoid_loss, device).detach().tolist()
-                    valid_f1, f1_mac = calc_f1(labels_full[output_nodes].detach().cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
+                    loss_valid = loss(output, torch.from_numpy(labels_full[output_nodes].todense()).to(device), args.sigmoid_loss, device).detach().tolist()
+                    valid_f1, f1_mac = calc_f1(labels_full[output_nodes].todense(), pred.detach().cpu().numpy(), args.sigmoid_loss)
                     print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
@@ -205,7 +201,7 @@ def train(rank, devices, world_size, train_data, buffer):
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-                test_f1, f1_mac = calc_f1(labels_full[output_nodes].cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
+                test_f1, f1_mac = calc_f1(labels_full[output_nodes].todense(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
                 correct += test_f1 * len(output_nodes)
                 total += len(output_nodes)
 
@@ -223,7 +219,7 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_data(args.dataset)
+    train_data = load_ogbn_data(args.dataset)
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
     device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, alpha=args.alpha)

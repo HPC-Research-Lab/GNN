@@ -3,15 +3,16 @@ from utils import *
 import torch.distributed as dist
 import subprocess
 from itertools import groupby 
+from ogb.nodeproppred import PygNodePropPredDataset
 
 
 
-def load_data(prefix):
+def load_graphsaint_data(prefix):
     # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
     # feats: features of all nodes, class_map: label of all nodes
-    adj_full = scipy.sparse.load_npz('./{}/adj_full.npz'.format(prefix)).astype(np.float)
+    adj_full = sp.load_npz('./{}/adj_full.npz'.format(prefix)).astype(np.float)
     role = json.load(open('./{}/role.json'.format(prefix)))
-    feats = np.load('./{}/feats.npy'.format(prefix))
+    feats = np.load('./{}/feats.npy'.format(prefix)).astype(np.float32)
     class_map = json.load(open('./{}/class_map.json'.format(prefix)))
     class_map = {int(k):v for k,v in class_map.items()}
     assert len(class_map) == feats.shape[0]
@@ -34,8 +35,40 @@ def load_data(prefix):
         offset = min(class_map.values())
         for k,v in class_map.items():
             class_arr[k][v-offset] = 1
+    
 
     return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+
+def load_ogbn_data(graph_name):
+    dataset = PygNodePropPredDataset(graph_name)
+    split_idx = dataset.get_idx_split()
+    data = dataset[0]
+    row, col = data.edge_index
+    num_vertices = data.num_nodes
+    adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices))
+    feats = data.x.pin_memory()
+    train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
+
+    print('graph loaded!', flush=True)
+
+    class_data = data.y.data.flatten()
+    assert(len(class_data) == num_vertices)
+    num_classes = max(class_data) - min(class_data) + 1
+    num_classes = num_classes.item()
+    class_arr = sp.lil_matrix((num_vertices, num_classes))
+    offset = min(class_data)
+    for i in range(len(class_data)):
+        class_arr[i, class_data[i]-offset] = 1
+    
+    return (adj_full, class_arr, feats, num_classes, train_idx.numpy(), valid_idx.numpy(), test_idx.numpy())
+
+    
+    
+    
+
+
+
+#load_ogbn_data('ogbn-arxiv')
 
 
 def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):

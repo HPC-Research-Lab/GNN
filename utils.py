@@ -25,7 +25,6 @@ import networkx as nx
 import time
 import sys
 import os
-import scipy
 from sklearn.preprocessing import StandardScaler
 from sklearn import metrics
 import torch.distributed as dist
