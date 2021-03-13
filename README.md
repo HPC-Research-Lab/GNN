@@ -1,18 +1,32 @@
 ## Overview
 
-Transductive GCN adapted form LADIES. Main changes: 
-1) add batch norm in each layer
-2) add non-convolutional layers
-3) sampling based on outgoing degree of the sampled nodes from previous layer
+Transductive learning on graphs. Support: 
+1) GraphSage and GCN models
+2) Layer-wise and subgraph sampling
+3) Multi-GPU training
 
 ## Datasets
 Datasets are adopted from GraphSAINT. 
 
 ## Usage
 
-Execute the following scripts to train and evaluate the model:
+To test with OGBN graphs:
 
 ```bash
-python main.py --cuda='0' --dataset data/ppi --epoch_num 1000 --buffer_size 10000 --scale_factor 4 # Train GCN with LADIES on ppi graph.
+python main.py --cuda='0' --dataset='ogbn-arxiv' --epoch_num 10
 ```
+
+To test with graphsaint data, change the `load_ogbn_data` in 'main.py' to `load_graphsaint_data`, and then run the following:
+
+```bash
+python main.py --cuda='0' --dataset data/reddit --epoch_num 10
+```
+
+The default GNN model is GraphSage, to change the model to GCN add `--model='gcn'`in the command line.
+
+The default sampler is layer-wise, to change the sampler to subgraph add `--sampler='subgraph'` in the command line.
+
+To train with multiple GPUs, use `--cuda='0,1,2,3'`. 
+
+
 
