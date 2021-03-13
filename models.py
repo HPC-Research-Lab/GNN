@@ -29,7 +29,7 @@ class GraphSage(nn.Module):
     def __init__(self, nfeat, nhid, orders, dropout):
         super(GraphSage, self).__init__()
         layers = len(orders)
-        self.nhid = nhid
+        self.nhid = (1 + orders[-1]) * nhid
         self.gcs = nn.ModuleList()
         self.gcs.append(GraphSageConvolution(nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)

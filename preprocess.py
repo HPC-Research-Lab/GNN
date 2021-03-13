@@ -4,6 +4,7 @@ import torch.distributed as dist
 import subprocess
 from itertools import groupby 
 from ogb.nodeproppred import PygNodePropPredDataset
+from torch_geometric.utils import to_undirected
 
 
 
@@ -26,15 +27,15 @@ def load_graphsaint_data(prefix):
     num_vertices = adj_full.shape[0]
     if isinstance(list(class_map.values())[0],list):
         num_classes = len(list(class_map.values())[0])
-        class_arr = np.zeros((num_vertices, num_classes))
+        class_arr = sp.lil_matrix((num_vertices, num_classes))
         for k,v in class_map.items():
             class_arr[k] = v
     else:
         num_classes = max(class_map.values()) - min(class_map.values()) + 1
-        class_arr = np.zeros((num_vertices, num_classes))
+        class_arr = sp.lil_matrix((num_vertices, num_classes))
         offset = min(class_map.values())
         for k,v in class_map.items():
-            class_arr[k][v-offset] = 1
+            class_arr[k, v-offset] = 1
     
 
     return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
@@ -43,6 +44,9 @@ def load_ogbn_data(graph_name):
     dataset = PygNodePropPredDataset(graph_name)
     split_idx = dataset.get_idx_split()
     data = dataset[0]
+
+    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+
     row, col = data.edge_index
     num_vertices = data.num_nodes
     adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices))

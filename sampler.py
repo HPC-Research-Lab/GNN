@@ -28,8 +28,8 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
     #     Add output nodes for self-loop
     after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
 
-    if concat == True: 
-        p[previous_nodes] = 0  
+    #if concat == True: 
+    #    p[previous_nodes] = 0  
     adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
     adj = sparse_mx_to_torch_sparse_tensor(adj.tocoo().astype(np.float32)).to(device).coalesce()
 
@@ -107,7 +107,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     col-select the lap_matrix (U), and then devided by the sampled probability for 
         #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.    
         #if concat == True:
-        p[previous_nodes] = 0  
+        #    p[previous_nodes] = 0  
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
         adj = sparse_mx_to_torch_sparse_tensor(adj.tocoo().astype(np.float32)).to(device).coalesce()
         adjs.append(adj)

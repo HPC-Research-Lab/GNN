@@ -54,6 +54,7 @@ parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--random_buffer', action='store_true')
 parser.add_argument('--alpha', type=float, default=1.0)
+parser.add_argument('--sampler', type=str, default='subgraph')
 
 
 args = parser.parse_args()
@@ -89,7 +90,14 @@ def train(rank, devices, world_size, train_data, buffer):
     orders = args.orders.split(',')
     orders = [int(t) for t in orders]
     samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
-    sampler = ladies_sampler
+
+    if args.sampler == 'subgraph':
+        sampler = subgraph_sampler
+    elif args.sampler == 'ladies':
+        sampler = ladies_sampler
+    else:
+        sys.exit('sampler configuration is wrong')
+
 
     if rank == 0:
         print(args, flush=True)
@@ -221,7 +229,7 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_graphsaint_data(args.dataset)
+    train_data = load_ogbn_data(args.dataset)
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
     device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, alpha=args.alpha)

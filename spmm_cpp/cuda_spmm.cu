@@ -636,7 +636,7 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
 
   _calc_rowptr<<<nblocks, nthreads>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
 
-  cudaDeviceSynchronize();
+  CUDA_CALL(cudaDeviceSynchronize());
 
   // calcauted as prefix sum of rowptr divided by NNZ_PER_CHUNK, stores the writing positions for virtual rowptrs
   torch::Tensor rowpos = torch::zeros({sparseMat.size(0)}, rowidx.options());
@@ -650,35 +650,33 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
   //std::cout << rowpos << std::endl;
   //std::cout << rowptr << std::endl;
 
-  cudaDeviceSynchronize();
+  CUDA_CALL(cudaDeviceSynchronize());
 
   int num_virtual_rows = rowpos[rowpos.size(0) - 1].item().to<int>() + DIV(rowptr[rowptr.size(0) - 1].item().to<int>() - rowptr[rowptr.size(0) - 2].item().to<int>(), NNZ_PER_CHUNK);
 
   //std::cout << sparseMat.size(0) << " " << num_virtual_rows << std::endl;
 
+
   torch::Tensor vrowptr = torch::empty({num_virtual_rows + 1}, rowptr.options());
+
+  nblocks.x = DIV(rowptr.size(0) + 1, 1024);
 
   _calc_vrowptr<<<nblocks, nthreads>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowpos.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
 
-  cudaDeviceSynchronize();
-
-  //std::cout << vrowptr << std::endl;
-  //std::cout << rowptr << std::endl;
-  //std::cout << rowidx << std::endl;
-
-  //std::cout << "===================" << std::endl;
-
-  //std::cout << rowidx.size(0) << std::endl;
-
-  // std::cout << rowptr << std::endl;
-
-  //std::cout << resMat << std::endl;
+  //std::cout << rowpos << std::endl;
+  CUDA_CALL(cudaDeviceSynchronize());
 
   if (denseMat.size(1) >= 64) {
-    
+    //std::cout << vrowptr << std::endl;
+    //std::cout << vrowptr << std::endl;
     dim3 nthreads_spmm(32, SROW_PER_TILE);
     dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), DIV(denseMat.size(1), 64));
     _spmm_cuda_v2_kernel<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>());
+    
+    CUDA_CALL(cudaDeviceSynchronize());
+
+    //std::cout << "55555" << std::endl;
+
 
     int remaining = denseMat.size(1) % 64;
     if (remaining > 0) {
@@ -686,11 +684,18 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
       nblocks_spmm.y = 1;
       _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>(), denseMat.size(1) - remaining);
     }
+    CUDA_CALL(cudaDeviceSynchronize());
+        //std::cout << "66666" << std::endl;
   } else {
+         //   std::cout << "777777" << std::endl;
+
     dim3 nthreads_spmm(64, SROW_PER_TILE);
     dim3 nblocks_spmm(DIV(vrowptr.size(0) - 1, SROW_PER_TILE), 1);
     _spmm_cuda_v2_kernel_small<<<nblocks_spmm, nthreads_spmm>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), values.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), sparseMat.size(0), denseMat.size(1), denseMat.packed_accessor32<float, 2, torch::RestrictPtrTraits>(), resMat.data_ptr<float>(), 0);
-    ;
+    
+    CUDA_CALL(cudaDeviceSynchronize());
+          //  std::cout << "88888" << std::endl;
+
   }
 
   //cudaDeviceSynchronize();
@@ -736,6 +741,8 @@ torch::Tensor spmm_cuda_v3(torch::Tensor rowidx, torch::Tensor colidx, torch::Te
   //std::cout << sparseMat.size(0) << " " << num_virtual_rows << std::endl;
 
   torch::Tensor vrowptr = torch::empty({num_virtual_rows + 1}, rowptr.options());
+
+  nblocks.x = DIV(rowptr.size(0) + 1, 1024);
 
   _calc_vrowptr<<<nblocks, nthreads>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowpos.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
 
