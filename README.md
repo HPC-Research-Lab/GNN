@@ -10,9 +10,17 @@ Datasets are adopted from GraphSAINT.
 
 ## Usage
 
-Execute the following scripts to train and evaluate the model:
+To test with ogbn graphs:
 
 ```bash
-python main.py --cuda='0' --dataset data/ppi --epoch_num 1000 --buffer_size 10000 --scale_factor 4 # Train GCN with LADIES on ppi graph.
+python main.py --cuda='0' --dataset='ogbn-arxiv' --epoch_num 10 --buffer_size 250000 
 ```
+
+To test with graphsaint data, change the 'load_ogbn_data' in 'main.py' to 'load_graphsaint_data', and then run the following:
+
+```bash
+python main.py --cuda='0' --dataset data/reddit --epoch_num 10 --buffer_size 250000 
+```
+The default GNN model is GraphSage, to change the model to GCN add `--model='gcn'`in the command line.
+
 
