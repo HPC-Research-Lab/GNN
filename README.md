@@ -6,7 +6,7 @@ Transductive learning on graphs. Support:
 3) Multi-GPU training
 
 ## Datasets
-Datasets are adopted from GraphSAINT. 
+OGB node prediction graphs, and datasets from GraphSAINT. 
 
 ## Usage
 
