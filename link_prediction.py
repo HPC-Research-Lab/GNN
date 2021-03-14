@@ -85,6 +85,8 @@ def train(rank, devices, world_size, train_data, buffer):
     elif args.model == 'gcn':
         lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
         concat = False
+    else:
+        sys.exit('model configuration is wrong')
 
 
     orders = args.orders.split(',')
@@ -111,7 +113,7 @@ def train(rank, devices, world_size, train_data, buffer):
         elif args.model == 'gcn':
             encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
 
-        susage  = GNN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
+        susage  = GNNLinkPred(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
         susage.to(device)
 
         optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
@@ -146,7 +148,8 @@ def train(rank, devices, world_size, train_data, buffer):
                 torch.cuda.synchronize()
                 data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
-                loss_train = loss(output, torch.from_numpy(labels_full[output_nodes].todense()).to(device), args.sigmoid_loss, device)
+
+                loss_train = link_pred_loss(output, torch.from_numpy(labels_full[output_nodes].todense()).to(device), args.sigmoid_loss, device)
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
