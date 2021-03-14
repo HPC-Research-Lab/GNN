@@ -3,9 +3,9 @@ import custom_sparse_ops
 
 trans_time = 0.0
 
-class SageConv(nn.Module):
+class GraphSageConvolution(nn.Module):
     def __init__(self, n_in, n_out, order, bias=True):
-        super(SageConv, self).__init__()
+        super(GraphSageConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
         self.linearW = nn.Linear(n_in,  n_out)
@@ -31,10 +31,10 @@ class GraphSage(nn.Module):
         layers = len(orders)
         self.nhid = (1 + orders[-1]) * nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(SageConv(nfeat,  nhid, orders[0]))
+        self.gcs.append(GraphSageConvolution(nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(SageConv((1+orders[i])*nhid,  nhid, orders[i+1]))
+            self.gcs.append(GraphSageConvolution((1+orders[i])*nhid,  nhid, orders[i+1]))
     def forward(self, x, adjs, sampled_nodes):
         '''
             The difference here with the original GCN implementation is that
@@ -46,9 +46,9 @@ class GraphSage(nn.Module):
 
 
 
-class GraphConv(nn.Module):
+class GraphConvolution(nn.Module):
     def __init__(self, n_in, n_out, order, bias=True):
-        super(GraphConv, self).__init__()
+        super(GraphConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
         self.linear = nn.Linear(n_in,  n_out)
@@ -72,10 +72,10 @@ class GCN(nn.Module):
         layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConv(nfeat,  nhid, orders[0]))
+        self.gcs.append(GraphConvolution(nfeat,  nhid, orders[0]))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConv(nhid,  nhid, orders[i+1]))
+            self.gcs.append(GraphConvolution(nhid,  nhid, orders[i+1]))
     def forward(self, x, adjs, sampled_nodes):
         '''
             The difference here with the original GCN implementation is that
@@ -85,9 +85,9 @@ class GCN(nn.Module):
             x = self.dropout(self.gcs[idx](x, adjs[idx]))
         return x
 
-class GNNNodePred(nn.Module):
+class GNN(nn.Module):
     def __init__(self, encoder, num_classes, dropout, inp):
-        super(GNNNodePred, self).__init__()
+        super(GNN, self).__init__()
         self.encoder = encoder
         self.dropout = nn.Dropout(dropout)
         self.linear  = nn.Linear(self.encoder.nhid, num_classes)
@@ -97,17 +97,3 @@ class GNNNodePred(nn.Module):
         x = self.dropout(x)
         x = self.linear(x)
         return x
-
-
-class GNNLinkPred(nn.Module):
-    def __init__(self, encoder, num_classes, dropout, inp):
-        super(GNNLinkPred, self).__init__()
-        self.encoder = encoder
-        self.dropout = nn.Dropout(dropout)
-        self.linear  = nn.Linear(self.encoder.nhid, num_classes)
-    def forward(self, feat, adjs, sampled_nodes):
-        x = self.encoder(feat, adjs, sampled_nodes)
-        x = F.normalize(x, p=2, dim=1)
-        x = self.dropout(x)
-        out = x.mm(x.transpose(0,1))
-        return out 

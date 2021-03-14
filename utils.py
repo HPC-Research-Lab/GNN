@@ -142,7 +142,7 @@ def package_mxl(mxl, device):
             res.append(None)
     return res
 
-def node_pred_loss(preds, labels, sigmoid_loss, device):
+def loss(preds, labels, sigmoid_loss, device):
         """
         The predictor performs sigmoid (for multi-class) or softmax (for single-class)
         """
