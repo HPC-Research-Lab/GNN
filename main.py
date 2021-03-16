@@ -229,7 +229,7 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_ogbn_data(args.dataset)
+    train_data = load_graphsaint_data(args.dataset)
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
     device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, alpha=args.alpha)

@@ -80,6 +80,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     adjs  = []
     orders1 = orders[::-1]
     sampled_nodes = []
+
+    nnz = 0
     '''
         Sample nodes from top to bottom, based on the probability computed adaptively (layer-dependent).
     '''
@@ -109,6 +111,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #if concat == True:
         #    p[previous_nodes] = 0  
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
+        nnz += adj.nnz
         adj = sparse_mx_to_torch_sparse_tensor(adj.tocoo().astype(np.float32)).to(device).coalesce()
         adjs.append(adj)
 
@@ -119,6 +122,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     adjs.reverse()
     sampled_nodes.reverse()
     #if len(sampling_time) == 1:
+
+    print('nnz: ', nnz)
 
     input_nodes_mask_on_devices = []
     nodes_idx_on_devices = []

@@ -11,10 +11,10 @@ from torch_geometric.utils import to_undirected
 def load_graphsaint_data(prefix):
     # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
     # feats: features of all nodes, class_map: label of all nodes
-    adj_full = sp.load_npz('./{}/adj_full.npz'.format(prefix)).astype(np.float)
-    role = json.load(open('./{}/role.json'.format(prefix)))
-    feats = np.load('./{}/feats.npy'.format(prefix)).astype(np.float32)
-    class_map = json.load(open('./{}/class_map.json'.format(prefix)))
+    adj_full = sp.load_npz('{}/adj_full.npz'.format(prefix)).astype(np.float)
+    role = json.load(open('{}/role.json'.format(prefix)))
+    feats = np.load('{}/feats.npy'.format(prefix)).astype(np.float32)
+    class_map = json.load(open('{}/class_map.json'.format(prefix)))
     class_map = {int(k):v for k,v in class_map.items()}
     assert len(class_map) == feats.shape[0]
     # ---- normalize feats ----
@@ -37,11 +37,13 @@ def load_graphsaint_data(prefix):
         for k,v in class_map.items():
             class_arr[k, v-offset] = 1
     
+    print('feat dim: ', feats.shape[1])
+    
 
     return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
-def load_ogbn_data(graph_name):
-    dataset = PygNodePropPredDataset(graph_name)
+def load_ogbn_data(graph_name, root_dir):
+    dataset = PygNodePropPredDataset(graph_name, root=root_dir)
     split_idx = dataset.get_idx_split()
     data = dataset[0]
 
