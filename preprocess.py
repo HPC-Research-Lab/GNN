@@ -108,9 +108,9 @@ def get_sample_matrix(adj_matrix, train_nodes, orders, rank, world_size):
 # the columns of sample_matrix must be all nodes
 def create_buffer(train_data, buffer_size, devices, alpha=1):
     
-    adj_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+    lap_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
 
-    sample_prob = np.ones(len(train_nodes)) * adj_matrix[train_nodes, :] * adj_matrix
+    sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :] * lap_matrix
     print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
 
     buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
@@ -122,9 +122,9 @@ def create_buffer(train_data, buffer_size, devices, alpha=1):
 
     gpu_buffer_group = []
     device_id_of_nodes_group = []
-    idx_of_nodes_on_device = np.arange(adj_matrix.shape[1])
+    idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
     for i in range(num_devs):
-        device_id_of_nodes = np.array([-1] * adj_matrix.shape[1])
+        device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
         gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
         buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
         device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
@@ -154,6 +154,42 @@ def create_buffer(train_data, buffer_size, devices, alpha=1):
     print(gpu_buffer_group)
 
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
+
+
+
+def create_adj_buffer(train_data, buffer_size, devices, alpha=1):
+    
+    lap_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+
+    sample_prob = np.array(np.sum(lap_matrix, axis=0))[0]
+
+    buffered_row = np.argsort(-1*sample_prob)[:buffer_size]
+
+    U = lap_matrix[buffered_row , :].tocoo()
+    rowidx_real = torch.from_numpy(U.row.astype(np.long))
+    colidx_np = U.col.astype(np.long)
+    colidx_gpu = torch.from_numpy(colidx_np)
+    value_np = U.data.astype(np.float32)
+    value_gpu = torch.from_numpy(value_np)
+    _, inverse_indices = torch.unique(rowidx_real, sorted=True, return_inverse=True)
+    rowidx_np = buffered_row[inverse_indices].astype(np.long)
+    rowidx_gpu = torch.from_numpy(rowidx_np)
+
+    lap_matrix_gpu_buffer_group = []
+
+    for i in range(len(devices)):
+        lap_matrix_gpu_buffer_group.append((rowidx_np, colidx_np, value_np, rowidx_gpu.to(devices[i]), colidx_gpu.to(devices[i]), value_gpu.to(devices[i]), (lap_matrix.shape[0], lap_matrix.shape[1])))
+
+    adj_buffered_rows = [buffered_row] * len(devices)
+
+    return adj_buffered_rows, lap_matrix_gpu_buffer_group
+
+
+
+
+
+
+
 
 
 def update_sampled_matrix(output_nodes, sampled_cols, sp_mat):

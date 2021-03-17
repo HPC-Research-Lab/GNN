@@ -50,6 +50,8 @@ parser.add_argument('--sigmoid_loss', type=bool, default=True)
 parser.add_argument('--global_permutation', type=bool, default=True)
 parser.add_argument('--buffer_size', type=int, default=250000,
                     help='Number of buffered nodes on GPU')
+parser.add_argument('--adj_buffer_size', type=int, default=250000,
+                    help='Number of buffered rows of the adj_matrix on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--random_buffer', action='store_true')
@@ -60,31 +62,26 @@ parser.add_argument('--sampler', type=str, default='ladies')
 args = parser.parse_args()
 
 
-def init_process(rank, devices, world_size, fn, train_data, buffer, backend='nccl'):
+def init_process(rank, devices, world_size, fn, train_data, buffer, adj_buffer, backend='nccl'):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group(backend, rank=rank, world_size=world_size)
     print(f"Rank {rank + 1}/{world_size} process initialized.", flush=True)
-    fn(rank, devices, world_size, train_data, buffer)
+    fn(rank, devices, world_size, train_data, buffer, adj_buffer)
 
 
-def train(rank, devices, world_size, train_data, buffer):
+def train(rank, devices, world_size, train_data, buffer, adj_buffer):
 
     device = devices[rank]
     torch.cuda.set_device(device)
 
     pool = ThreadPoolExecutor(max_workers=args.pool_num) 
         
-    adj_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+    lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
 
     device_id_of_nodes, idx_of_nodes_on_device, gpu_buffers = buffer
 
-    if args.model == 'graphsage':
-        lap_matrix = row_normalize(adj_matrix)
-        concat = True
-    elif args.model == 'gcn':
-        lap_matrix = row_normalize(adj_matrix + sp.eye(adj_matrix.shape[0]))
-        concat = False
+    adj_buffered_rows, lap_matrix_gpu = adj_buffer
 
 
     orders = args.orders.split(',')
@@ -126,7 +123,7 @@ def train(rank, devices, world_size, train_data, buffer):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, adj_buffered_rows, lap_matrix_gpu, args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
 
@@ -166,7 +163,7 @@ def train(rank, devices, world_size, train_data, buffer):
         
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, mode='val')
+                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, adj_buffered_rows, lap_matrix_gpu, mode='val')
 
                 for fut in as_completed(val_data):    
                     adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
@@ -194,7 +191,7 @@ def train(rank, devices, world_size, train_data, buffer):
             best_model.eval()
             best_model.cpu()
 
-            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, adj_buffered_rows, lap_matrix_gpu, mode='test')
 
             correct = 0.0
             total = 0.0
@@ -231,12 +228,22 @@ if __name__ == "__main__":
 
     train_data = load_graphsaint_data(args.dataset)
 
+
+    if args.model == 'graphsage':
+        lap_matrix = row_normalize(train_data[0])
+    elif args.model == 'gcn':
+        lap_matrix = row_normalize(train_data[0] + sp.eye(train_data[0].shape[0]))
+
+    train_data = [lap_matrix, *train_data[1:]]
+
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
     device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, alpha=args.alpha)
-  
+
+    adj_buffered_rows, lap_matrix_gpu_buffers = create_adj_buffer(train_data, args.adj_buffer_size, devices, alpha=args.alpha)
+
 
     for rank in range(world_size):
-        p = mp.Process(target=init_process, args=(rank, devices, world_size, train, train_data, (device_id_of_nodes_group[rank], idx_of_nodes_on_device_group[rank], gpu_buffers)))
+        p = mp.Process(target=init_process, args=(rank, devices, world_size, train, train_data, (device_id_of_nodes_group[rank], idx_of_nodes_on_device_group[rank], gpu_buffers), (adj_buffered_rows[rank], lap_matrix_gpu_buffers[rank])))
         p.start()
         processes.append(p)
     
