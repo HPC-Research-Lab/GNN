@@ -2,7 +2,7 @@ from utils import *
 
 
 
-def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, adj_buffered_rows, device, devices):
+def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, concat, device, devices):
 
     np.random.seed(seed)
     previous_nodes = batch_nodes
@@ -69,7 +69,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
 
 
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, adj_buffered_rows, lap_matrix_gpu, device, devices):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, concat, device, devices):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -106,43 +106,13 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
         #     Add output nodes for self-loop
         after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
-
-        gpu_nodes_mask = np.in1d(previous_nodes, adj_buffered_rows)
-        cpu_nodes_mask = np.invert(gpu_nodes_mask)
-        cpu_nodes_idx = np.arange(len(previous_nodes))[cpu_nodes_mask]
-        gpu_nodes_real_idx = previous_nodes[gpu_nodes_mask]
-        gpu_nodes_idx = torch.from_numpy(np.arange(len(previous_nodes))[gpu_nodes_mask]).to(device)
-        gpu_after_nodes_idx = torch.arange(len(after_nodes)).to(device)
-
-        adj = U[: , after_nodes].tocoo()
-        cpu_coo_mask = np.in1d(adj.row, cpu_nodes_idx)
-
-        rowidx_from_cpu = torch.from_numpy(adj.row[cpu_coo_mask].astype(np.long)).to(device)
-        colidx_from_cpu = torch.from_numpy(adj.col[cpu_coo_mask].astype(np.long)).to(device)
-        value_from_cpu = torch.from_numpy(adj.data[cpu_coo_mask].astype(np.float32)).to(device)
-
-        row_np, col_np, val_np, row_gpu, col_gpu, val_gpu, _ = lap_matrix_gpu
-
-        gpu_coo_mask = np.in1d(row_np, gpu_nodes_real_idx) * np.in1d(col_np, after_nodes)
-
-        rowidx_from_gpu_real = row_gpu[gpu_coo_mask]
-        _, inverse_indices = torch.unique(rowidx_from_gpu_real, sorted=True, return_inverse=True)
-        rowidx_from_gpu = gpu_nodes_idx[inverse_indices]
-        colidx_from_gpu_real = col_gpu[gpu_coo_mask]
-        _, inverse_indices = torch.unique(colidx_from_gpu_real, sorted=True, return_inverse=True)
-        colidx_from_gpu = gpu_after_nodes_idx[inverse_indices]
-        value_from_gpu = val_gpu[gpu_coo_mask]
-
-        rowidx = torch.cat([rowidx_from_cpu, rowidx_from_gpu])
-        colidx = torch.cat([colidx_from_cpu, colidx_from_gpu])
-        value = torch.cat([value_from_cpu, value_from_gpu])
-
-        normalization_factor = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
-
-        value = value * normalization_factor[colidx]
-
-        adj = torch.sparse_coo_tensor(torch.stack([rowidx, colidx]), value, [len(previous_nodes), len(after_nodes)]).coalesce()
-
+        #     col-select the lap_matrix (U), and then devided by the sampled probability for 
+        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.    
+        #if concat == True:
+        #    p[previous_nodes] = 0  
+        adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1))
+        nnz += adj.nnz
+        adj = sparse_mx_to_torch_sparse_tensor(adj.tocoo().astype(np.float32)).to(device).coalesce()
         adjs.append(adj)
 
         sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
@@ -153,6 +123,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
     sampled_nodes.reverse()
     #if len(sampling_time) == 1:
 
+    print('nnz: ', nnz)
 
     input_nodes_mask_on_devices = []
     nodes_idx_on_devices = []
@@ -168,7 +139,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
 
 
 iter_num = 0
-def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, adj_buffered_rows, lap_matrix_gpu, scale_factor=1, global_permutation=False, mode='train'):
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, concat, scale_factor=1, global_permutation=False, mode='train'):
     global iter_num
     if mode == 'train':
         # sample p batches for training
@@ -194,14 +165,14 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, adj_buffered_rows, lap_matrix_gpu, device, devices))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, concat, device, devices))
             yield from futures
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(target_nodes))[:batch_size]
         batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, 1, adj_buffered_rows, lap_matrix_gpu, device, devices))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, 1, concat, device, devices))
         yield from futures
     elif mode == 'test':
         num_batches = len(target_nodes) // batch_size
@@ -211,6 +182,6 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, adj_buffered_rows, lap_matrix_gpu, device, devices))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor, concat, device, devices))
             yield from futures
 
