@@ -112,11 +112,10 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
         #     Add output nodes for self-loop
         after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
-        #     col-select the lap_matrix (U), and then devided by the sampled probability for 
-        #     unbiased-sampling. Finally, conduct row-normalization to avoid value explosion.    
-        #if concat == True:
-        #    p[previous_nodes] = 0  
+
         adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1)).tocoo().astype(np.float32)
+
+        # profile adj
         if dataset != None and ratios != None:
             profile(adj.row, ratios)
 

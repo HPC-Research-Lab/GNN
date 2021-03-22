@@ -4,11 +4,14 @@ import sys
 from torch.utils.cpp_extension import load
 import numpy as np
 
+
 spmm_cpp = load(name='spmm', sources=['spmm_cpp/spmm.cpp', 'spmm_cpp/cuda_spmm.cu'])
 
 
 spmm_forward_time = 0.0
 spmm_backward_time = 0.0
+
+
 
 class SparseDenseMM(torch.autograd.Function):
   @staticmethod
