@@ -40,5 +40,6 @@ class SparseDenseMM(torch.autograd.Function):
 
 
 spmm = SparseDenseMM.apply
+create_coo_tensor = spmm_cpp.create_coo_tensor
 
 
