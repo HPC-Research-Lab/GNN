@@ -5,7 +5,7 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat);
 
 torch::Tensor spmm_cuda_v3(torch::Tensor row, torch::Tensor col, torch::Tensor value, int nrows, torch::Tensor denseMat);
 
-torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int nrows, int ncols);
+torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int64_t nrows, int64_t ncols);
 
 #define CHECK_CUDA(x) \
   TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor")

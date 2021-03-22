@@ -795,7 +795,7 @@ __global__ void _create_coo_tensor_kernel(
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid < rowptr.size(0) - 1) {
     for (int i = rowptr[tid]; i < rowptr[tid+1]; i++) {
-      indices[0][i] = rowptr[tid];
+      indices[0][i] = tid;
       indices[1][i] = colidx[i];
       value[i] = 1. / (fullrowptr[tid+1] - fullrowptr[tid]) * normfact[colidx[i]];
     }
@@ -803,7 +803,7 @@ __global__ void _create_coo_tensor_kernel(
 }
 
 
-torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int nrows, int ncols) {
+torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int64_t nrows, int64_t ncols) {
     auto options = colidx.options();
     options = options.dtype(torch::kLong);
     auto indices = torch::empty({2, colidx.size(0)}, options);
@@ -817,6 +817,6 @@ torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torc
 
     _create_coo_tensor_kernel<<<nblocks, nthreads>>>(indices.packed_accessor64<int64_t, 2, torch::RestrictPtrTraits>(), value.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), fullrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor<int16_t, 1, torch::RestrictPtrTraits>(), normfact.packed_accessor32<float, 1, torch::RestrictPtrTraits>());
 
-    return at::_sparse_coo_tensor_unsafe(indices, value, {nrows, ncols}).coalesce();
+    return at::sparse_coo_tensor(indices, value, {nrows, ncols}).coalesce();
 
 }

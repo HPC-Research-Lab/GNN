@@ -15,6 +15,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
 
     #     row-select the lap_matrix (U) by previously sampled nodes
     U = lap_matrix[previous_nodes , :]
+    fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
     #     Only use the upper layer's neighborhood to calculate the probability.
     pi = sp.linalg.norm(U, ord=0, axis=0)
     if scale_factor > 1:
@@ -30,10 +31,13 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
     #     Add output nodes for self-loop
     after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
 
-    adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1)).tocoo().astype(np.float32)
+    adj = U[: , after_nodes]
 
+    rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+    colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device) 
+    normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
-    adj = sparse_mx_to_torch_sparse_tensor(adj).to(device).coalesce()
+    adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
     layer_idx = 0
     for d in range(len(orders1)):
@@ -48,10 +52,17 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
     
     for d in range(layer_idx, len(orders1)):
         U = lap_matrix[after_nodes , :]
-        adj = U[:, after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1)).tocoo().astype(np.float32)
+        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+        adj = U[:, after_nodes]
+
+        rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+        colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device) 
+        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
 
-        adjs.append(sparse_mx_to_torch_sparse_tensor(adj).to(device).coalesce())
+        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+
+        adjs.append(adj)
 
         sampled_nodes.append(np.arange(len(after_nodes)))
 
