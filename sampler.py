@@ -1,10 +1,6 @@
 from utils import *
-import custom_sparse_ops
 
-
-
-
-def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices):
+def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices, dataset=None, ratios=None):
 
     np.random.seed(seed)
     previous_nodes = batch_nodes
@@ -31,7 +27,9 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
     after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
 
     adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1)).tocoo().astype(np.float32)
-
+    # profile the sampled adj matrix
+    if dataset != None and ratios != None:
+        profile(adj.row, ratios)
 
     adj = sparse_mx_to_torch_sparse_tensor(adj).to(device).coalesce()
 
@@ -50,6 +48,9 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
         U = lap_matrix[after_nodes , :]
         adj = U[:, after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1)).tocoo().astype(np.float32)
 
+        # profile the sampled adj matrix
+        if dataset != None and ratios != None:
+            profile(adj.row, ratios)
 
         adjs.append(sparse_mx_to_torch_sparse_tensor(adj).to(device).coalesce())
 
@@ -74,7 +75,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, or
 
 
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices):
+def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices, dataset=None, ratios=None):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -97,8 +98,6 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
             continue
         #     row-select the lap_matrix (U) by previously sampled nodes
         U = lap_matrix[previous_nodes , :]
-        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
-
         #     Only use the upper layer's neighborhood to calculate the probability.
         pi = sp.linalg.norm(U, ord=0, axis=0)
         if scale_factor > 1:
@@ -114,17 +113,16 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #     Add output nodes for self-loop
         after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
 
-        adj = U[: , after_nodes]
+        adj = U[: , after_nodes].multiply(1/np.clip(s_num * p[after_nodes], 1e-10, 1)).tocoo().astype(np.float32)
 
-        rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
-        colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device) 
-        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
+        # profile adj
+        if dataset != None and ratios != None:
+            profile(adj.row, ratios)
 
-
-        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+        adj = sparse_mx_to_torch_sparse_tensor(adj).to(device).coalesce()
 
         adjs.append(adj)
-        
+
         sampled_nodes.append(np.where(np.in1d(after_nodes, previous_nodes))[0])
         #     Turn the sampled nodes as previous_nodes, recursively conduct sampling.
         previous_nodes = after_nodes
@@ -147,7 +145,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
 
 
 iter_num = 0
-def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  scale_factor=1, global_permutation=False, mode='train'):
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  scale_factor=1, global_permutation=False, mode='train', dataset=None, ratios=None):
     global iter_num
     if mode == 'train':
         # sample p batches for training
@@ -173,7 +171,7 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices, dataset, ratios))
             yield from futures
     elif mode == 'val':
         futures = []

@@ -111,8 +111,11 @@ def train(rank, devices, world_size, train_data, buffer):
         susage.to(device)
 
         optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
-        best_val = -1
+        best_val = 0
+        best_tst = -1
+        cnt = 0
         execution_time = 0.0
+        comm_time = 0.0
         data_movement_time = 0.0
 
         for epoch in np.arange(args.epoch_num):
