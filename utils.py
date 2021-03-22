@@ -18,7 +18,7 @@ from networkx.readwrite import json_graph
 import json
 import pandas as pd
 from sklearn.metrics import f1_score
-from collections import defaultdict
+from collections import defaultdict, Counter
 from sklearn.metrics import classification_report
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -107,25 +107,9 @@ def get_laplacian(adj):
     adj = row_normalize(adj + sp.eye(adj.shape[0]))
     return sparse_mx_to_torch_sparse_tensor(adj) 
 
-def profile(idx):
-    r = idx[0].cpu()
-    c = idx[1].cpu()
-   # print(r)
-   # print(c)
-    count = {}
-    for i in range(len(r)):
-        if r[i].item() not in count:
-            count[r[i].item()] = 0
-        count[r[i].item()] += 1
-    print('r: ', sorted(count.values(), reverse=True)[0])
-
-    count2 = {}
-    for i in range(len(c)):
-        if c[i].item() not in count2:
-            count2[c[i].item()] = 0
-        count2[c[i].item()] += 1
-    print('c: ', sorted(count2.values(), reverse=True)[0])
-
+def profile(r, ratios):
+    count = Counter(r)
+    ratios.append(len(count.values()) * max(count.values())/sum(count.values()))
 
 
 def package_mxl(mxl, device):

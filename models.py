@@ -15,7 +15,6 @@ class GraphSageConvolution(nn.Module):
         self.order = order
     def forward(self, x, adj, sampled_nodes):
         if self.order > 0:
-            #profile(adj._indices())
             feat = custom_sparse_ops.spmm(adj, x)
             feat = torch.cat([self.linearB(x[sampled_nodes]), self.linearW(feat)], 1)
         else:
@@ -58,7 +57,6 @@ class GraphConvolution(nn.Module):
     def forward(self, x, adj):
         feat = x
         if self.order > 0:
-            #profile(adj._indices())
             feat = custom_sparse_ops.spmm(adj, feat)
         out = F.elu(self.linear(feat))
         mean = out.mean(dim=1).view(out.shape[0],1)

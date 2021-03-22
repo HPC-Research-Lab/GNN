@@ -8,13 +8,13 @@ from torch_geometric.utils import to_undirected
 
 
 
-def load_graphsaint_data(prefix):
+def load_graphsaint_data(graph_name, root_dir):
     # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
     # feats: features of all nodes, class_map: label of all nodes
-    adj_full = sp.load_npz('{}/adj_full.npz'.format(prefix)).astype(np.float)
-    role = json.load(open('{}/role.json'.format(prefix)))
-    feats = np.load('{}/feats.npy'.format(prefix)).astype(np.float32)
-    class_map = json.load(open('{}/class_map.json'.format(prefix)))
+    adj_full = sp.load_npz(f'{root_dir}/{graph_name}/adj_full.npz').astype(np.float)
+    role = json.load(open(f'{root_dir}/{graph_name}/role.json'))
+    feats = np.load(f'{root_dir}/{graph_name}/feats.npy').astype(np.float32)
+    class_map = json.load(open(f'{root_dir}/{graph_name}/class_map.json'))
     class_map = {int(k):v for k,v in class_map.items()}
     assert len(class_map) == feats.shape[0]
     # ---- normalize feats ----

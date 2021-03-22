@@ -82,6 +82,7 @@ def train(rank, devices, world_size, train_data, buffer):
 
 
 
+
     orders = args.orders.split(',')
     orders = [int(t) for t in orders]
     samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
@@ -224,7 +225,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_graphsaint_data(args.dataset)
+    train_data = load_ogbn_data(args.dataset, '/data/not_backed_up/shared/ogbn_data')
+    #train_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(train_data[0])
@@ -245,4 +247,5 @@ if __name__ == "__main__":
     
     for p in processes:
         p.join()
+
  
