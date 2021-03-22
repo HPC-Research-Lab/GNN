@@ -783,3 +783,40 @@ torch::Tensor spmm_cuda_v3(torch::Tensor rowidx, torch::Tensor colidx, torch::Te
 
   return resMat;
 }
+
+__global__ void _create_coo_tensor_kernel(
+    torch::PackedTensorAccessor64<int64_t, 2, torch::RestrictPtrTraits> indices,
+    torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> value,
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> fullrowptr, 
+    const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr,
+    const torch::PackedTensorAccessor<int16_t, 1, torch::RestrictPtrTraits> colidx,
+    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> normfact
+) {
+  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+  if (tid < rowptr.size(0) - 1) {
+    for (int i = rowptr[tid]; i < rowptr[tid+1]; i++) {
+      indices[0][i] = rowptr[tid];
+      indices[1][i] = colidx[i];
+      value[i] = 1. / (fullrowptr[tid+1] - fullrowptr[tid]) * normfact[colidx[i]];
+    }
+  }
+}
+
+
+torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int nrows, int ncols) {
+    auto options = colidx.options();
+    options = options.dtype(torch::kLong);
+    auto indices = torch::empty({2, colidx.size(0)}, options);
+    options = options.dtype(torch::kFloat);
+    auto value = torch::empty({colidx.size(0)}, options);
+
+    dim3 nthreads, nblocks;
+
+    nthreads.x = 1024;
+    nblocks.x = DIV(rowptr.size(0)-1, 1024);
+
+    _create_coo_tensor_kernel<<<nblocks, nthreads>>>(indices.packed_accessor64<int64_t, 2, torch::RestrictPtrTraits>(), value.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), fullrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor<int16_t, 1, torch::RestrictPtrTraits>(), normfact.packed_accessor32<float, 1, torch::RestrictPtrTraits>());
+
+    return at::_sparse_coo_tensor_unsafe(indices, value, {nrows, ncols}).coalesce();
+
+}
