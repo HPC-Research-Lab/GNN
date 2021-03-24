@@ -254,7 +254,7 @@ __global__ void _spmm_cuda_v2_kernel_small(
 
 __global__ void _calc_rowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr,
                              const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowidx) {
-  int tid = threadIdx.x + blockIdx.x * 1024;
+  int tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid <= rowidx.size(0)) {
     int pre = (tid == 0 ? -1 : rowidx[tid - 1]);
     int cur = (tid == rowidx.size(0) ? rowptr.size(0) - 1 : rowidx[tid]);
@@ -267,7 +267,7 @@ __global__ void _calc_rowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::Re
 
 
 __global__ void _calc_vrowptr(torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> vrowptr, const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowpos, const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr) {
-  int r = threadIdx.x + blockIdx.x * 1024;
+  int r = threadIdx.x + blockIdx.x * blockDim.x;
   if (r < rowptr.size(0) - 1) {
     int j = 0;
     for (int i = rowptr[r]; i < rowptr[r + 1]; i += NNZ_PER_CHUNK) {
@@ -631,8 +631,8 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
 
   dim3 nthreads, nblocks;
 
-  nthreads.x = 1024;
-  nblocks.x = DIV(rowidx.size(0) + 1, 1024);
+  nthreads.x = 256;
+  nblocks.x = DIV(rowidx.size(0) + 1, nthreads.x);
 
   _calc_rowptr<<<nblocks, nthreads>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
 
@@ -659,7 +659,7 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat) {
 
   torch::Tensor vrowptr = torch::empty({num_virtual_rows + 1}, rowptr.options());
 
-  nblocks.x = DIV(rowptr.size(0) + 1, 1024);
+  nblocks.x = DIV(rowptr.size(0) + 1, nthreads.x);
 
   _calc_vrowptr<<<nblocks, nthreads>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowpos.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
 
@@ -714,8 +714,8 @@ torch::Tensor spmm_cuda_v3(torch::Tensor rowidx, torch::Tensor colidx, torch::Te
 
   dim3 nthreads, nblocks;
 
-  nthreads.x = 1024;
-  nblocks.x = DIV(rowidx.size(0) + 1, 1024);
+  nthreads.x = 256;
+  nblocks.x = DIV(rowidx.size(0) + 1, nthreads.x);
 
 
   _calc_rowptr<<<nblocks, nthreads>>>(rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowidx.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
@@ -742,7 +742,7 @@ torch::Tensor spmm_cuda_v3(torch::Tensor rowidx, torch::Tensor colidx, torch::Te
 
   torch::Tensor vrowptr = torch::empty({num_virtual_rows + 1}, rowptr.options());
 
-  nblocks.x = DIV(rowptr.size(0) + 1, 1024);
+  nblocks.x = DIV(rowptr.size(0) + 1, nthreads.x);
 
   _calc_vrowptr<<<nblocks, nthreads>>>(vrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowpos.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>());
 
@@ -812,8 +812,8 @@ torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torc
 
     dim3 nthreads, nblocks;
 
-    nthreads.x = 1024;
-    nblocks.x = DIV(rowptr.size(0)-1, 1024);
+    nthreads.x = 256;
+    nblocks.x = DIV(rowptr.size(0)-1, nthreads.x);
 
     _create_coo_tensor_kernel<<<nblocks, nthreads>>>(indices.packed_accessor64<int64_t, 2, torch::RestrictPtrTraits>(), value.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), fullrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor<int16_t, 1, torch::RestrictPtrTraits>(), normfact.packed_accessor32<float, 1, torch::RestrictPtrTraits>());
 

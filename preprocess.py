@@ -37,7 +37,8 @@ def load_graphsaint_data(graph_name, root_dir):
         for k,v in class_map.items():
             class_arr[k, v-offset] = 1
     
-    print('feat dim: ', feats.shape[1])
+    print('feat dim: ', feats.shape, flush=True)
+    print('label dim: ', class_arr.shape, flush=True)
     
 
     return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
@@ -55,7 +56,7 @@ def load_ogbn_data(graph_name, root_dir):
     feats = data.x.pin_memory()
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
 
-    print('graph loaded!', flush=True)
+    print('feat dim: ', feats.shape, flush=True)
 
     class_data = data.y.data.flatten()
     assert(len(class_data) == num_vertices)
@@ -71,19 +72,18 @@ def load_ogbn_data(graph_name, root_dir):
     
 
 # the columns of sample_matrix must be all nodes
-def create_buffer(train_data, buffer_size, devices, alpha=1):
+def create_buffer(train_data, num_nodes_per_dev, devices, alpha=1):
     
     lap_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
 
     sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :] * lap_matrix
-    print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
-
-    buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
+    #print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
 
     num_devs = len(devices)
-    num_nodes_per_dev = len(buffered_nodes) // num_devs
-    if len(buffered_nodes) % num_devs != 0:
-        num_nodes_per_dev += 1
+
+    buffer_size = num_nodes_per_dev * num_devs
+
+    buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
 
     gpu_buffer_group = []
     device_id_of_nodes_group = []

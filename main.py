@@ -139,7 +139,7 @@ def train(rank, devices, world_size, train_data, buffer):
                 torch.cuda.synchronize()
                 data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
-                loss_train = loss(output, torch.from_numpy(labels_full[output_nodes].todense()).to(device), args.sigmoid_loss, device)
+                loss_train = loss(output, sparse_mx_to_torch_sparse_tensor(labels_full[output_nodes]).to(device).to_dense(), args.sigmoid_loss, device)
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
@@ -173,7 +173,7 @@ def train(rank, devices, world_size, train_data, buffer):
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-                    loss_valid = loss(output, torch.from_numpy(labels_full[output_nodes].todense()).to(device), args.sigmoid_loss, device).detach().tolist()
+                    loss_valid = loss(output, sparse_mx_to_torch_sparse_tensor(labels_full[output_nodes]).to(device).to_dense(), args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(labels_full[output_nodes].todense(), pred.detach().cpu().numpy(), args.sigmoid_loss)
                     print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
