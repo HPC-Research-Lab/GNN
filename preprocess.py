@@ -48,15 +48,13 @@ def load_ogbn_data(graph_name, root_dir):
     split_idx = dataset.get_idx_split()
     data = dataset[0]
 
-    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+    #data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
     row, col = data.edge_index
     num_vertices = data.num_nodes
     adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices))
     feats = data.x.pin_memory()
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
-
-    print('feat dim: ', feats.shape, flush=True)
 
     class_data = data.y.data.flatten()
     assert(len(class_data) == num_vertices)
@@ -66,6 +64,9 @@ def load_ogbn_data(graph_name, root_dir):
     offset = min(class_data)
     for i in range(len(class_data)):
         class_arr[i, class_data[i]-offset] = 1
+
+    print('feat dim: ', feats.shape, flush=True)
+    print('label dim: ', class_arr.shape, flush=True)
     
     return (adj_full, class_arr, feats, num_classes, train_idx.numpy(), valid_idx.numpy(), test_idx.numpy())
 
