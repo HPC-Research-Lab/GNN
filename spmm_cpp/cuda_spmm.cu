@@ -804,6 +804,9 @@ __global__ void _create_coo_tensor_kernel(
 
 
 torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int64_t nrows, int64_t ncols) {
+
+    at::DeviceGuard g(colidx.device());
+
     auto options = colidx.options();
     options = options.dtype(torch::kLong);
     auto indices = torch::empty({2, colidx.size(0)}, options);
@@ -816,6 +819,8 @@ torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torc
     nblocks.x = DIV(rowptr.size(0)-1, nthreads.x);
 
     _create_coo_tensor_kernel<<<nblocks, nthreads>>>(indices.packed_accessor64<int64_t, 2, torch::RestrictPtrTraits>(), value.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), fullrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor<int16_t, 1, torch::RestrictPtrTraits>(), normfact.packed_accessor32<float, 1, torch::RestrictPtrTraits>());
+
+    CUDA_CALL(cudaDeviceSynchronize()); 
 
     return at::sparse_coo_tensor(indices, value, {nrows, ncols}).coalesce();
 
