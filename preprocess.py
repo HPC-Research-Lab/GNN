@@ -48,7 +48,7 @@ def load_ogbn_data(graph_name, root_dir):
     split_idx = dataset.get_idx_split()
     data = dataset[0]
 
-    #data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
     row, col = data.edge_index
     num_vertices = data.num_nodes
