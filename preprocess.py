@@ -58,8 +58,13 @@ def load_ogbn_data(graph_name, root_dir):
 
     class_data = data.y.data.flatten()
     assert(len(class_data) == num_vertices)
+
+    print(class_data)
+
     num_classes = max(class_data) - min(class_data) + 1
-    num_classes = num_classes.item()
+    print(num_classes)
+    num_classes = int(num_classes.item())
+    print(num_classes)
     class_arr = sp.lil_matrix((num_vertices, num_classes))
     offset = min(class_data)
     for i in range(len(class_data)):

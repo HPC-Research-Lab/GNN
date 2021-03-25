@@ -222,7 +222,7 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_ogbn_data(args.dataset, '/data/not_backed_up/shared/ogbn_data')
+    train_data = load_ogbn_data(args.dataset, '/ocean/projects/ccr200020p/shared')
     #train_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
 
     if args.model == 'graphsage':
