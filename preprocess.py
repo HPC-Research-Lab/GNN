@@ -48,7 +48,7 @@ def load_ogbn_data(graph_name, root_dir):
     split_idx = dataset.get_idx_split()
     data = dataset[0]
 
-    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+    # data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
     row, col = data.edge_index
     num_vertices = data.num_nodes
@@ -59,16 +59,21 @@ def load_ogbn_data(graph_name, root_dir):
     class_data = data.y.data.flatten()
     assert(len(class_data) == num_vertices)
 
-    print(class_data)
+    class_data_compact = class_data[~torch.isnan(class_data)]
 
-    num_classes = max(class_data) - min(class_data) + 1
-    print(num_classes)
+    max_class_idx = torch.max(class_data_compact)
+    min_class_idx = torch.min(class_data_compact)
+
+    print(max_class_idx, min_class_idx, flush=True)
+
+    num_classes = max_class_idx - min_class_idx + 1
     num_classes = int(num_classes.item())
-    print(num_classes)
+
+    print(num_classes, flush=True)
     class_arr = sp.lil_matrix((num_vertices, num_classes))
-    offset = min(class_data)
     for i in range(len(class_data)):
-        class_arr[i, class_data[i]-offset] = 1
+        if not torch.isnan(class_data[i]): 
+            class_arr[i, class_data[i]-min_class_idx] = 1
 
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
