@@ -118,7 +118,6 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         #pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
         samp_num_d = samp_num_list[d]
-        #while True:
         s_num = np.min([np.sum(p > 0), samp_num_d])
         #     sample the next layer's nodes based on the adaptively probability (p).
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)

@@ -4,7 +4,7 @@ import torch.distributed as dist
 import subprocess
 from itertools import groupby 
 from ogb.nodeproppred import PygNodePropPredDataset
-from torch_geometric.utils import to_undirected
+from torch_geometric.utils import to_undirected, dropout_adj
 import multiprocessing as mp
 
 
@@ -33,10 +33,12 @@ def load_graphsaint_data(graph_name, root_dir):
             class_arr[k] = v
     else:
         num_classes = max(class_map.values()) - min(class_map.values()) + 1
-        class_arr = sp.lil_matrix((num_vertices, num_classes))
+        class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
         offset = min(class_map.values())
         for k,v in class_map.items():
             class_arr[k, v-offset] = 1
+
+        class_arr = class_arr.tocsr()
     
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
@@ -50,6 +52,9 @@ def load_ogbn_data(graph_name, root_dir):
     data = dataset[0]
 
     # data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+
+    data.edge_index, _ = dropout_adj(data.edge_index, p = 0.4, num_nodes= data.num_nodes)
+    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
     row, col = data.edge_index
     num_vertices = data.num_nodes

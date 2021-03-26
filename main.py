@@ -42,8 +42,6 @@ parser.add_argument('--orders', type=str, default='1,1,0',
                     help='Layer orders')
 parser.add_argument('--samp_num', type=int, default=8192,
                     help='Number of sampled nodes per layer')
-parser.add_argument('--sample_method', type=str, default='ladies',
-                    help='Sampled Algorithms: ladies/fastgcn/full')
 parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
@@ -231,8 +229,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    #train_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
+    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    graph_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
