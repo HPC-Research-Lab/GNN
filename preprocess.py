@@ -71,22 +71,24 @@ def load_ogbn_data(graph_name, root_dir):
     num_classes = int(num_classes.item())
 
     #print(num_classes, flush=True)
-    class_arr = sp.lil_matrix((num_vertices, num_classes))
+    class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
     for i in range(len(class_data)):
         if not torch.isnan(class_data[i]): 
             class_arr[i, class_data[i]-min_class_idx] = 1
+    
+    class_arr = class_arr.tocsr()
 
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
     
-    return (adj_full, class_arr, feats, num_classes, train_idx.numpy(), valid_idx.numpy(), test_idx.numpy())
+    return (adj_full, class_arr, feats, num_classes, train_idx.share_memory_(), valid_idx.share_memory_(), test_idx.share_memory_())
 
     
 
 # the columns of sample_matrix must be all nodes
-def create_buffer(train_data, num_nodes_per_dev, devices, alpha=1):
+def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, alpha=1):
     
-    lap_matrix, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+    _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
     sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :] * lap_matrix
     #print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
@@ -126,7 +128,7 @@ def create_buffer(train_data, num_nodes_per_dev, devices, alpha=1):
 
     gpu_buffers = []
     for i in range(num_devs):
-        gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
+        gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]).share_memory_())
 
     print(gpu_buffer_group)
 
@@ -134,7 +136,25 @@ def create_buffer(train_data, num_nodes_per_dev, devices, alpha=1):
 
 
 def create_shared_input_object(lap_matrix, graph_data):
-    return [(mp.Array('l', lap_matrix.indptr), mp.Array('l', lap_matrix.indices), mp.Array('f', lap_matrix.data), lap_matrix.shape), *graph_data[1:]]
+    lap_matrix_indptr = mp.Array('l', lap_matrix.indptr)
+    lap_matrix.indptr = None
+    lap_matrix_indices = mp.Array('l', lap_matrix.indices)
+    lap_matrix.indices = None
+    lap_matrix_data = mp.Array('f', lap_matrix.data)
+    lap_matrix.data = None
+
+    class_arr_indptr = mp.Array('l', graph_data[1].indptr)
+    graph_data[1].indptr = None
+    class_arr_indices = mp.Array('l', graph_data[1].indices)
+    graph_data[1].indices = None
+    class_arr_data = mp.Array('i', graph_data[1].data)
+    graph_data[1].data = None
+
+
+
+    res = [(lap_matrix_indptr, lap_matrix_indices, lap_matrix_data, lap_matrix.shape), (class_arr_indptr, class_arr_indices, class_arr_data, graph_data[1].shape), *graph_data[2:]]
+    print("shared object created", flush=True)
+    return res
 
     
 

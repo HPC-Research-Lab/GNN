@@ -63,7 +63,8 @@ args = parser.parse_args()
 def init_process(rank, devices, world_size, fn, graph_data, buffer, backend='nccl'):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
-    dist.init_process_group(backend, rank=rank, world_size=world_size)
+    if world_size > 1:
+        dist.init_process_group(backend, rank=rank, world_size=world_size)
     print(f"Rank {rank + 1}/{world_size} process initialized.", flush=True)
     fn(rank, devices, world_size, graph_data, buffer)
 
@@ -75,9 +76,18 @@ def train(rank, devices, world_size, graph_data, buffer):
 
     pool = ThreadPoolExecutor(max_workers=args.pool_num) 
         
-    lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
+    lap_matrix_tmp, labels_full_tmp, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
-    #lap_matrix = sp.csr_matrix((lap_matrix[2], lap_matrix[1], lap_matrix[0]),  lap_matrix[3])
+    lap_matrix = sp.csr_matrix(lap_matrix_tmp[3])
+
+    lap_matrix.indptr = np.frombuffer(lap_matrix_tmp[0].get_obj(), dtype=np.long)
+    lap_matrix.indices = np.frombuffer(lap_matrix_tmp[1].get_obj(), dtype=np.long)
+    lap_matrix.data = np.frombuffer(lap_matrix_tmp[2].get_obj(), dtype=np.float32)
+
+    labels_full = sp.csr_matrix(labels_full_tmp[3])
+    labels_full.indptr = np.frombuffer(labels_full_tmp[0].get_obj(), dtype=np.long)
+    labels_full.indices = np.frombuffer(labels_full_tmp[1].get_obj(), dtype=np.long)
+    labels_full.data = np.frombuffer(labels_full_tmp[2].get_obj(), dtype=np.int32)
 
     device_id_of_nodes, idx_of_nodes_on_device, gpu_buffers = buffer
 
@@ -230,12 +240,11 @@ if __name__ == "__main__":
         lap_matrix = row_normalize(graph_data[0] + sp.eye(graph_data[0].shape[0]))
 
   
-    graph_data = [lap_matrix, *graph_data[1:]]
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(graph_data, args.buffer_size, devices, alpha=args.alpha)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, alpha=args.alpha)
 
-
+    graph_data = create_shared_input_object(lap_matrix, graph_data)
 
     for rank in range(world_size):
         p = mp.Process(target=init_process, args=(rank, devices, world_size, train, graph_data, (device_id_of_nodes_group[rank], idx_of_nodes_on_device_group[rank], gpu_buffers)))
