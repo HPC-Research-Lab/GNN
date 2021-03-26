@@ -5,7 +5,6 @@ import subprocess
 from itertools import groupby 
 from ogb.nodeproppred import PygNodePropPredDataset
 from torch_geometric.utils import to_undirected
-import multiprocessing as mp
 
 
 
@@ -42,7 +41,7 @@ def load_graphsaint_data(graph_name, root_dir):
     print('label dim: ', class_arr.shape, flush=True)
     
 
-    return (adj_full, class_arr, torch.FloatTensor(feats).share_memory_(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+    return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
 def load_ogbn_data(graph_name, root_dir):
     dataset = PygNodePropPredDataset(graph_name, root=root_dir)
@@ -54,7 +53,7 @@ def load_ogbn_data(graph_name, root_dir):
     row, col = data.edge_index
     num_vertices = data.num_nodes
     adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices))
-    feats = data.x.share_memory_()
+    feats = data.x.pin_memory()
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
 
     class_data = data.y.data.flatten()
@@ -65,12 +64,12 @@ def load_ogbn_data(graph_name, root_dir):
     max_class_idx = torch.max(class_data_compact)
     min_class_idx = torch.min(class_data_compact)
 
-    #print(max_class_idx, min_class_idx, flush=True)
+    print(max_class_idx, min_class_idx, flush=True)
 
     num_classes = max_class_idx - min_class_idx + 1
     num_classes = int(num_classes.item())
 
-    #print(num_classes, flush=True)
+    print(num_classes, flush=True)
     class_arr = sp.lil_matrix((num_vertices, num_classes))
     for i in range(len(class_data)):
         if not torch.isnan(class_data[i]): 
@@ -131,12 +130,4 @@ def create_buffer(train_data, num_nodes_per_dev, devices, alpha=1):
     print(gpu_buffer_group)
 
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-
-
-def create_shared_input_object(lap_matrix, graph_data):
-    return [(mp.Array('l', lap_matrix.indptr), mp.Array('l', lap_matrix.indices), mp.Array('f', lap_matrix.data), lap_matrix.shape), *graph_data[1:]]
-
-    
-
-    
 
