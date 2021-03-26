@@ -34,7 +34,7 @@ parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default= 20,
                     help='Number of Epoch')
-parser.add_argument('--pool_num', type=int, default=8,
+parser.add_argument('--pool_num', type=int, default=4,
                     help='Number of Pool')
 parser.add_argument('--batch_size', type=int, default=2048,
                     help='size of output node in a batch')
@@ -228,8 +228,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    graph_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
+    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    #graph_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
