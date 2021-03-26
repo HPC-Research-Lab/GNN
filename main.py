@@ -235,8 +235,6 @@ if __name__ == "__main__":
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
     device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(graph_data, args.buffer_size, devices, alpha=args.alpha)
 
-    #graph_data = create_shared_input_object(lap_matrix, graph_data)
-
 
 
     for rank in range(world_size):
