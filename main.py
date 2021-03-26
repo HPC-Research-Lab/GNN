@@ -13,7 +13,7 @@ from preprocess import *
 import torch.distributed as dist
 import os
 import subprocess
-from multiprocessing import shared_memory
+from multiprocessing import Value 
 
 
 import warnings
@@ -60,27 +60,26 @@ parser.add_argument('--sampler', type=str, default='ladies')
 args = parser.parse_args()
 
 
-def init_process(rank, devices, world_size, fn, train_data, buffer, backend='nccl'):
+def init_process(rank, devices, world_size, fn, graph_data, buffer, backend='nccl'):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
     dist.init_process_group(backend, rank=rank, world_size=world_size)
     print(f"Rank {rank + 1}/{world_size} process initialized.", flush=True)
-    fn(rank, devices, world_size, train_data, buffer)
+    fn(rank, devices, world_size, graph_data, buffer)
 
 
-def train(rank, devices, world_size, train_data, buffer):
+def train(rank, devices, world_size, graph_data, buffer):
 
     device = devices[rank]
     torch.cuda.set_device(device)
 
     pool = ThreadPoolExecutor(max_workers=args.pool_num) 
         
-    lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = train_data
+    lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
+
+    #lap_matrix = sp.csr_matrix((lap_matrix[2], lap_matrix[1], lap_matrix[0]),  lap_matrix[3])
 
     device_id_of_nodes, idx_of_nodes_on_device, gpu_buffers = buffer
-
-
-
 
 
     orders = args.orders.split(',')
@@ -222,23 +221,26 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    train_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
     #train_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
 
     if args.model == 'graphsage':
-        lap_matrix = row_normalize(train_data[0])
+        lap_matrix = row_normalize(graph_data[0])
     elif args.model == 'gcn':
-        lap_matrix = row_normalize(train_data[0] + sp.eye(train_data[0].shape[0]))
+        lap_matrix = row_normalize(graph_data[0] + sp.eye(graph_data[0].shape[0]))
 
-    train_data = [lap_matrix, *train_data[1:]]
   
+    graph_data = [lap_matrix, *graph_data[1:]]
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(train_data, args.buffer_size, devices, alpha=args.alpha)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(graph_data, args.buffer_size, devices, alpha=args.alpha)
+
+    #graph_data = create_shared_input_object(lap_matrix, graph_data)
+
 
 
     for rank in range(world_size):
-        p = mp.Process(target=init_process, args=(rank, devices, world_size, train, train_data, (device_id_of_nodes_group[rank], idx_of_nodes_on_device_group[rank], gpu_buffers)))
+        p = mp.Process(target=init_process, args=(rank, devices, world_size, train, graph_data, (device_id_of_nodes_group[rank], idx_of_nodes_on_device_group[rank], gpu_buffers)))
         p.start()
         processes.append(p)
     
