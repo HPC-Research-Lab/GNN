@@ -121,6 +121,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, orde
         s_num = np.min([np.sum(p > 0), samp_num_d])
         #     sample the next layer's nodes based on the adaptively probability (p).
         after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
+        #after_nodes = random.choices(range(num_nodes), p, k=s_num)
         #     Add output nodes for self-loop
         after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
 
