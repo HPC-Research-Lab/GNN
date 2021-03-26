@@ -209,7 +209,6 @@ def train(rank, devices, world_size, graph_data, buffer):
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
                     
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
-                #output = susage.forward(feat_data[input_nodes].to(device), adjs, sampled_nodes)
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                 test_f1, f1_mac = calc_f1(labels_full[output_nodes].todense(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
                 correct += test_f1 * len(output_nodes)
@@ -229,8 +228,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    graph_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
+    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    #graph_data = load_graphsaint_data(args.dataset, '/data/not_backed_up/shared/graphsaint_data')
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
