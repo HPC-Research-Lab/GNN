@@ -126,9 +126,9 @@ def train(rank, devices, world_size, graph_data, buffer):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
             for fut in as_completed(train_data):
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
 
                 optimizer.zero_grad()
                 susage.train()
@@ -146,7 +146,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 torch.cuda.synchronize()
                 data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
-                loss_train = loss(output, sparse_mx_to_torch_sparse_tensor(labels_full[output_nodes]).to(device).to_dense(), args.sigmoid_loss, device)
+                loss_train = loss(output, out_label, args.sigmoid_loss, device)
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
@@ -166,10 +166,10 @@ def train(rank, devices, world_size, graph_data, buffer):
         
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
 
                 for fut in as_completed(val_data):    
-                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
+                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                     #adjs = package_mxl(adjs, device)
                     input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
@@ -180,8 +180,8 @@ def train(rank, devices, world_size, graph_data, buffer):
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-                    loss_valid = loss(output, sparse_mx_to_torch_sparse_tensor(labels_full[output_nodes]).to(device).to_dense(), args.sigmoid_loss, device).detach().tolist()
-                    valid_f1, f1_mac = calc_f1(labels_full[output_nodes].todense(), pred.detach().cpu().numpy(), args.sigmoid_loss)
+                    loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
+                    valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
                     print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") %                   (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
@@ -194,13 +194,13 @@ def train(rank, devices, world_size, graph_data, buffer):
             best_model.eval()
             best_model.cpu()
 
-            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
             correct = 0.0
             total = 0.0
 
             for fut in as_completed(test_data):    
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, output_nodes, sampled_nodes = fut.result()
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
@@ -210,10 +210,9 @@ def train(rank, devices, world_size, graph_data, buffer):
                     
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-                test_f1, f1_mac = calc_f1(labels_full[output_nodes].todense(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
-                correct += test_f1 * len(output_nodes)
-                total += len(output_nodes)
-
+                test_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
+                correct += test_f1 * out_label.shape[0]
+                total += out_label.shape[0]
 
             print('Test f1 score: %.2f' % (correct / total), flush=True)
         
