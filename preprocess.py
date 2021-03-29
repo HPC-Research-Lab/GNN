@@ -53,8 +53,8 @@ def load_ogbn_data(graph_name, root_dir):
 
     # data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
-    data.edge_index, _ = dropout_adj(data.edge_index, p = 0.5, num_nodes= data.num_nodes)
-    #data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+    #data.edge_index, _ = dropout_adj(data.edge_index, p = 0.5, num_nodes= data.num_nodes)
+    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
     row, col = data.edge_index
     num_vertices = data.num_nodes

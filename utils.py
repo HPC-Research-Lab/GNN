@@ -130,7 +130,7 @@ def loss(preds, labels, sigmoid_loss, device):
         """
         The predictor performs sigmoid (for multi-class) or softmax (for single-class)
         """
-        norm_loss = torch.ones(preds.shape[0]).to(device)
+        norm_loss = torch.ones(preds.shape[0], device=device)
         norm_loss /= preds.shape[0]
         if sigmoid_loss:
             norm_loss = norm_loss.unsqueeze(1)
