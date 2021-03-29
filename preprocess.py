@@ -12,7 +12,7 @@ import multiprocessing as mp
 def load_graphsaint_data(graph_name, root_dir):
     # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
     # feats: features of all nodes, class_map: label of all nodes
-    adj_full = sp.load_npz(f'{root_dir}/{graph_name}/adj_full.npz').astype(np.float)
+    adj_full = sp.load_npz(f'{root_dir}/{graph_name}/adj_full.npz').astype(np.float32)
     role = json.load(open(f'{root_dir}/{graph_name}/role.json'))
     feats = np.load(f'{root_dir}/{graph_name}/feats.npy').astype(np.float32)
     class_map = json.load(open(f'{root_dir}/{graph_name}/class_map.json'))
@@ -44,22 +44,25 @@ def load_graphsaint_data(graph_name, root_dir):
     print('label dim: ', class_arr.shape, flush=True)
     
 
-    return (adj_full, class_arr, torch.FloatTensor(feats).share_memory_(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+    return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+
+
 
 def load_ogbn_data(graph_name, root_dir):
     dataset = PygNodePropPredDataset(graph_name, root=root_dir)
     split_idx = dataset.get_idx_split()
     data = dataset[0]
 
-    # data.edge_index = to_undirected(data.edge_index, data.num_nodes)
-
-    #data.edge_index, _ = dropout_adj(data.edge_index, p = 0.5, num_nodes= data.num_nodes)
-    data.edge_index = to_undirected(data.edge_index, data.num_nodes)
 
     row, col = data.edge_index
+    row, col = torch.cat([row, col], dim=0), torch.cat([col, row], dim=0)
     num_vertices = data.num_nodes
-    adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices))
-    feats = data.x.share_memory_()
+
+    adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices), dtype=np.float32)
+    row = None
+    col = None
+
+    feats = data.x.pin_memory()
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
 
     class_data = data.y.data.flatten()
@@ -70,12 +73,9 @@ def load_ogbn_data(graph_name, root_dir):
     max_class_idx = torch.max(class_data_compact)
     min_class_idx = torch.min(class_data_compact)
 
-    #print(max_class_idx, min_class_idx, flush=True)
-
     num_classes = max_class_idx - min_class_idx + 1
     num_classes = int(num_classes.item())
 
-    #print(num_classes, flush=True)
     class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
     for i in range(len(class_data)):
         if not torch.isnan(class_data[i]): 
@@ -86,7 +86,7 @@ def load_ogbn_data(graph_name, root_dir):
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
     
-    return (adj_full, class_arr, feats, num_classes, train_idx.share_memory_(), valid_idx.share_memory_(), test_idx.share_memory_())
+    return (adj_full, class_arr, feats, num_classes, train_idx, valid_idx, test_idx)
 
     
 
@@ -133,7 +133,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, alpha=1):
 
     gpu_buffers = []
     for i in range(num_devs):
-        gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]).share_memory_())
+        gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
 
     print(gpu_buffer_group)
 
