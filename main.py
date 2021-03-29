@@ -50,7 +50,7 @@ parser.add_argument('--buffer_size', type=int, default=250000,
                     help='Number of buffered nodes on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
-parser.add_argument('--random_buffer', action='store_true')
+parser.add_argument('--test', action='store_true')
 parser.add_argument('--alpha', type=float, default=1.0)
 parser.add_argument('--sampler', type=str, default='ladies')
 
@@ -189,7 +189,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                     
                     
 
-        if rank == 0:
+        if args.test == True and rank == 0:
             best_model = torch.load('./save/best_model.pt')
             best_model.eval()
             best_model.cpu()
