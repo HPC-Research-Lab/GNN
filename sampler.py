@@ -141,7 +141,6 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
     #     Reverse the sampled probability from bottom to top. Only require input how the lastly sampled nodes.
     adjs.reverse()
     sampled_nodes.reverse()
-    #if len(sampling_time) == 1:
 
     input_nodes_mask_on_devices = []
     nodes_idx_on_devices = []

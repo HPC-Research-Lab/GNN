@@ -26,19 +26,19 @@ def load_graphsaint_data(graph_name, root_dir):
     feats = scaler.transform(feats)
 
     num_vertices = adj_full.shape[0]
-    if isinstance(list(class_map.values())[0],list):
+    if isinstance(list(class_map.values())[0], list):
         num_classes = len(list(class_map.values())[0])
-        class_arr = sp.lil_matrix((num_vertices, num_classes))
+        class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.float32)
         for k,v in class_map.items():
             class_arr[k] = v
     else:
         num_classes = max(class_map.values()) - min(class_map.values()) + 1
-        class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
+        class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.float32)
         offset = min(class_map.values())
         for k,v in class_map.items():
             class_arr[k, v-offset] = 1
 
-        class_arr = class_arr.tocsr()
+    class_arr = class_arr.tocsr()
     
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
@@ -76,7 +76,7 @@ def load_ogbn_data(graph_name, root_dir):
     num_classes = max_class_idx - min_class_idx + 1
     num_classes = int(num_classes.item())
 
-    class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
+    class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.float32)
     for i in range(len(class_data)):
         if not torch.isnan(class_data[i]): 
             class_arr[i, class_data[i]-min_class_idx] = 1
@@ -152,7 +152,7 @@ def create_shared_input_object(lap_matrix, graph_data):
     graph_data[1].indptr = None
     class_arr_indices = mp.Array('l', graph_data[1].indices)
     graph_data[1].indices = None
-    class_arr_data = mp.Array('i', graph_data[1].data)
+    class_arr_data = mp.Array('f', graph_data[1].data)
     graph_data[1].data = None
 
 
