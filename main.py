@@ -227,8 +227,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    #graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
