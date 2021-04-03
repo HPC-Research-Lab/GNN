@@ -116,19 +116,29 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, alpha=1):
         idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
     
     idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
-    # for example num_devs=4, num_nodes_per_dev=m
+
+    p_accum = np.array([0.0] * num_devs)
+
     for i in range(len(buffered_nodes) - num_nodes_per_dev):
+
+        if i % num_devs == 0:
+            device_order = np.argsort(p_accum)
+
         candidate_node = buffered_nodes[num_nodes_per_dev + i]
-        node_to_be_replaced = buffered_nodes[num_nodes_per_dev - 1 - i // (num_devs - 1)]
+        new_node_idx = num_nodes_per_dev - 1 - i // (num_devs - 1)
+        node_to_be_replaced = buffered_nodes[new_node_idx]
         if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
-            current_dev = i % num_devs if (i / num_devs) % 2 == 0 else num_devs - 1 - i % num_devs 
+            current_dev = device_order[i % num_devs]
+            p_accum[current_dev] += sample_prob[candidate_node]
             for j in range(num_devs):
                 device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
-                idx_of_nodes_on_device_group[j][candidate_node] = num_nodes_per_dev - 1 - i // (num_devs - 1)
-            device_id_of_nodes_group[current_dev][node_to_be_replaced] = num_devs - 1 - i //  (num_devs - 1) % num_devs
-            gpu_buffer_group[current_dev][num_nodes_per_dev - 1 - i // (num_devs - 1)] = candidate_node 
+                idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
+            device_id_of_nodes_group[current_dev][node_to_be_replaced] = device_order[-1] 
+            gpu_buffer_group[current_dev][new_node_idx] = candidate_node 
         else:
             break
+
+    print(p_accum)
             
     print("change_num: ", i)
 
