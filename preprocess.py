@@ -121,11 +121,12 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, alpha=1):
         candidate_node = buffered_nodes[num_nodes_per_dev + i]
         node_to_be_replaced = buffered_nodes[num_nodes_per_dev - 1 - i // (num_devs - 1)]
         if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
+            current_dev = i % num_devs if (i / num_devs) % 2 == 0 else num_devs - 1 - i % num_devs 
             for j in range(num_devs):
-                device_id_of_nodes_group[j][candidate_node] = devices[i % num_devs]
+                device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
                 idx_of_nodes_on_device_group[j][candidate_node] = num_nodes_per_dev - 1 - i // (num_devs - 1)
-            device_id_of_nodes_group[i % num_devs][node_to_be_replaced] = num_devs - 1 - i //  (num_devs - 1) % num_devs
-            gpu_buffer_group[i % num_devs][num_nodes_per_dev - 1 - i // (num_devs - 1)] = candidate_node 
+            device_id_of_nodes_group[current_dev][node_to_be_replaced] = num_devs - 1 - i //  (num_devs - 1) % num_devs
+            gpu_buffer_group[current_dev][num_nodes_per_dev - 1 - i // (num_devs - 1)] = candidate_node 
         else:
             break
             
