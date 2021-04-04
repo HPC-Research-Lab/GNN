@@ -150,16 +150,23 @@ def calc_f1(y_true, y_pred,is_sigmoid):
 
 
 def average_grad(model):
-        sendbuf = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(model.parameters()) if param.grad != None), 0)
-        dist.all_reduce(sendbuf)
+   #     sendbuf = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(model.parameters()) if param.grad != None), 0)
+    #    dist.all_reduce(sendbuf)
 
-        start = 0
-        for param in model.parameters():
-            if param.grad != None:
-                param.grad.data = sendbuf[start:start+param.grad.data.numel()].view(param.grad.data.size())
-                start += param.grad.data.numel()
+#        start = 0
+ #       for param in model.parameters():
+  #          if param.grad != None:
+   #             param.grad.data = sendbuf[start:start+param.grad.data.numel()].view(param.grad.data.size())
+    #            start += param.grad.data.numel()
+
+
+    for param in model.parameters():
+        dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
 
 def load_yaml(filepath):
     with open(filepath, 'r') as f:
         data = yaml.load(f)
     return data
+
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
