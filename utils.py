@@ -161,14 +161,15 @@ def average_grad(model):
 
 
 def average_model(model):
-    sendbuf = torch.cat(tuple((param.data).view(param.data.numel()) for i, param in enumerate(model.parameters()) if param.grad != None), 0)
+    sendbuf = torch.cat(tuple((param.data).view(param.data.numel()) for i, param in enumerate(model.parameters())), 0)
     dist.all_reduce(sendbuf)
+
+    sendbuf /= 2
 
     start = 0
     for param in model.parameters():
-        if param.grad != None:
-            param.data = sendbuf[start:start+param.data.numel()].view(param.data.size())
-            start += param.grad.numel()
+        param.data = sendbuf[start:start+param.data.numel()].view(param.data.size())
+        start += param.data.numel()
 
 
     #for param in model.parameters():

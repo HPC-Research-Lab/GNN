@@ -72,6 +72,8 @@ def init_process(rank, devices, world_size, fn, graph_data, buffer, backend='ncc
 
 def train(rank, devices, world_size, graph_data, buffer):
 
+    torch.manual_seed(1234)
+
     device = devices[rank]
     torch.cuda.set_device(device)
 
@@ -238,8 +240,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    #graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
