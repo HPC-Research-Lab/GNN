@@ -155,7 +155,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
-                # communication is expensive
+                dist.barrier()
                 torch.cuda.synchronize()
                 t2 = time.time()
                 if world_size > 1:
