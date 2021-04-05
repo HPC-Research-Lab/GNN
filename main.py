@@ -133,12 +133,11 @@ def train(rank, devices, world_size, graph_data, buffer):
 
             train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
 
-            iter = 0
-
             for fut in as_completed(train_data):
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
 
-                iter += 1
+                adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
+                out_label = out_label.to(device).to_dense()
 
                 optimizer.zero_grad()
                 susage.train()
@@ -163,7 +162,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 # communication is expensive
                 torch.cuda.synchronize()
                 t2 = time.time()
-                if world_size > 1 and iter % 4 == 0:
+                if world_size > 1:
                     average_grad(susage)
                 torch.cuda.synchronize()
                 communication_time += time.time() - t2
@@ -184,6 +183,9 @@ def train(rank, devices, world_size, graph_data, buffer):
                 for fut in as_completed(val_data):    
                     adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                     input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
+
+                    adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
+                    out_label = out_label.to(device).to_dense()
 
                     for i in range(world_size):
                         input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
@@ -215,6 +217,9 @@ def train(rank, devices, world_size, graph_data, buffer):
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
+                adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
+                out_label = out_label.to(device).to_dense()
+
                 for i in range(world_size):
                     input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 
@@ -239,8 +244,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    #graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
