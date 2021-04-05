@@ -164,8 +164,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 torch.cuda.synchronize()
                 t2 = time.time()
                 if world_size > 1 and iter % 4 == 0:
-                    for param in susage.parameters():
-                        dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
+                    average_grad(susage)
                 torch.cuda.synchronize()
                 communication_time += time.time() - t2
                 
