@@ -33,12 +33,12 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
     adj = U[: , after_nodes]
 
 
-    fullrowptr = torch.from_numpy(U.indptr.astype(np.int32))
-    rowptr = torch.from_numpy(adj.indptr.astype(np.int32))
-    colidx = torch.from_numpy(adj.indices.astype(np.int16))
-    normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32))
+    fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+    rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+    colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device)
+    normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
-    adj = (fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+    adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
     layer_idx = 0
     for d in range(len(orders1)):
@@ -56,13 +56,13 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
 
         adj = U[:, after_nodes]
 
-        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32))
-        rowptr = torch.from_numpy(adj.indptr.astype(np.int32))
-        colidx = torch.from_numpy(adj.indices.astype(np.int16))
-        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32))
+        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+        rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+        colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device)
+        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
 
-        adj = (fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
         adjs.append(adj)
 
@@ -83,7 +83,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
         input_nodes_mask_on_devices.append(input_nodes_devices == devices[i])
         nodes_idx_on_devices.append(idx_of_nodes_on_device[after_nodes[input_nodes_mask_on_devices[i]]].copy())
 
-    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(after_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]), sampled_nodes
+    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(after_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]).to(device).to_dense(), sampled_nodes
 
 
 
@@ -129,12 +129,12 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
 
         adj = U[: , after_nodes]
 
-        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32))
-        rowptr = torch.from_numpy(adj.indptr.astype(np.int32))
-        colidx = torch.from_numpy(adj.indices.astype(np.int16))
-        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32))
+        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+        rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+        colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device)
+        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
-        adj = (fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
         adjs.append(adj)
         
@@ -155,11 +155,11 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
         input_nodes_mask_on_devices.append(input_nodes_devices == devices[i])
         nodes_idx_on_devices.append(idx_of_nodes_on_device[previous_nodes[input_nodes_mask_on_devices[i]]].copy())
 
-    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]), sampled_nodes
+    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]).to(device).to_dense(), sampled_nodes
 
 
 iter_num = 0
-def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  scale_factor=1, global_permutation=False, mode='train'):
+def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, num_workers=4, scale_factor=1, global_permutation=False, mode='train'):
     global iter_num
     if mode == 'train':
         # sample p batches for training
@@ -181,29 +181,22 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             #print(idxs)
         if (num_batches % batch_size):
           num_batches += 1
-        for i in range(0, num_batches, 32):   # 32 is the queue size
-            futures = []
-            for j in range(i, min(32+i, num_batches)):
-                target_nodes_chunk = target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]]
-                if not hasattr(target_nodes_chunk, '__len__'):
-                    target_nodes_chunk = [target_nodes_chunk]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
-            yield from futures
+        for i in range(0, num_batches, num_workers):   # 32 is the queue size
+            samples = pool.map(sampler, [(np.random.randint(2**32 - 1), target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]], samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices) for j in range(i, min(i+num_workers, num_batches))])
+            yield from samples
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(target_nodes))[:batch_size]
         batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, 1,  device, devices))
+        yield sampler((np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, 1,  device, devices))
         yield from futures
     elif mode == 'test':
         num_batches = len(target_nodes) // batch_size
         if (num_batches % batch_size):
           num_batches += 1
-        for i in range(0, num_batches, 32):   # 32 is the queue size
-            futures = []
-            for j in range(i, min(32+i, num_batches)):
-                target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
-            yield from futures
+        for i in range(0, num_batches, num_workers):   # 32 is the queue size
+            for i in range(0, num_batches, num_workers):
+                samples = pool.map(sampler, [(np.random.randint(2**32 - 1),  target_nodes[idxs[j*batch_size: min((j+1)*batch_size, len(idxs))]], samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices) for j in range(i, min(i+num_workers, num_batches))])
+            yield from samples
 

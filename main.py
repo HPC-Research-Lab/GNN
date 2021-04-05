@@ -131,13 +131,9 @@ def train(rank, devices, world_size, graph_data, buffer):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
 
-            for fut in as_completed(train_data):
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
-
-                adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
-                out_label = out_label.to(device).to_dense()
+            for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in train_data:
 
                 optimizer.zero_grad()
                 susage.train()
@@ -178,14 +174,11 @@ def train(rank, devices, world_size, graph_data, buffer):
         
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+                val_data = prepare_data(pool, lambda p: sampler(*p), valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
 
-                for fut in as_completed(val_data):    
-                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
+                for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in val_data:    
+
                     input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
-
-                    adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
-                    out_label = out_label.to(device).to_dense()
 
                     for i in range(world_size):
                         input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
@@ -208,13 +201,12 @@ def train(rank, devices, world_size, graph_data, buffer):
             best_model.eval()
             best_model.cpu()
 
-            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+            test_data = prepare_data(pool, lambda p: sampler(*p), test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
             correct = 0.0
             total = 0.0
 
-            for fut in as_completed(test_data):    
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
+            for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in test_data:    
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
@@ -244,8 +236,8 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    #graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    #graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
