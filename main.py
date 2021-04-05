@@ -127,13 +127,19 @@ def train(rank, devices, world_size, graph_data, buffer):
         data_movement_time = 0.0
         communication_time = 0.0
 
+        
+        iter = 0
+
         for epoch in np.arange(args.epoch_num):
             susage.train()
             train_losses = []
 
             train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
 
+
             for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in train_data:
+
+                iter += 1
 
                 optimizer.zero_grad()
                 susage.train()
@@ -156,8 +162,8 @@ def train(rank, devices, world_size, graph_data, buffer):
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
 
-                #if world_size > 1:
-                #    average_grad(susage)
+                if world_size > 1 and iter % 8 == 0:
+                    average_model(susage)
                 
                 optimizer.step()
 

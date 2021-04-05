@@ -160,6 +160,17 @@ def average_grad(model):
             start += param.grad.data.numel()
 
 
+def average_model(model):
+    sendbuf = torch.cat(tuple((param.data).view(param.data.numel()) for i, param in enumerate(model.parameters()) if param.grad != None), 0)
+    dist.all_reduce(sendbuf)
+
+    start = 0
+    for param in model.parameters():
+        if param.grad != None:
+            param.data = sendbuf[start:start+param.data.numel()].view(param.data.size())
+            start += param.grad.numel()
+
+
     #for param in model.parameters():
     #    dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
 
