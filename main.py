@@ -165,7 +165,7 @@ def train(rank, devices, world_size, graph_data, buffer):
 
 
                 if world_size > 1 and iter % 8 == 0:
-                    average_model(susage)
+                    average_model(susage, world_size)
                 
                 optimizer.step()
 
