@@ -249,9 +249,11 @@ if __name__ == "__main__":
         lap_matrix = row_normalize(graph_data[0] + sp.eye(graph_data[0].shape[0]))
 
   
+    orders = args.orders.split(',')
+    orders = [int(t) for t in orders]
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, alpha=args.alpha)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders),  alpha=args.alpha)
 
     graph_data = create_shared_input_object(lap_matrix, graph_data)
 

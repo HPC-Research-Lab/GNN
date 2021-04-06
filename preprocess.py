@@ -92,16 +92,18 @@ def load_ogbn_data(graph_name, root_dir):
     
 
 
-def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, alpha=1):
+def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1):
     
     _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
     
     num_devs = len(devices)
 
-    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).buf'
+    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).buf'
 
     if not os.path.exists(fname):
-        sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :] * lap_matrix
+        sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
+        for i in range(num_conv_layers-1):
+            sample_prob *= lap_matrix
         #print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
 
 
