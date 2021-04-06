@@ -154,7 +154,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 for i in range(world_size):
                     input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
 
                 torch.cuda.synchronize()
                 data_movement_time += time.time() - t1

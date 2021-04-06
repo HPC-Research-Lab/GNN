@@ -45,7 +45,7 @@ def load_graphsaint_data(graph_name, root_dir):
     print('label dim: ', class_arr.shape, flush=True)
     
 
-    return (adj_full, class_arr, torch.FloatTensor(feats).pin_memory(), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
+    return (adj_full, class_arr, torch.FloatTensor(feats), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
 
 
@@ -63,7 +63,7 @@ def load_ogbn_data(graph_name, root_dir):
     row = None
     col = None
 
-    feats = data.x.pin_memory()
+    feats = data.x
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
 
     class_data = data.y.data.flatten()
