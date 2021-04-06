@@ -138,6 +138,11 @@ def train(rank, devices, world_size, graph_data, buffer):
 
             train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
 
+            e1 = torch.cuda.Event(enable_timing=True)
+            e2 = torch.cuda.Event(enable_timing=True)
+            e3 = torch.cuda.Event(enable_timing=True)
+            e4 = torch.cuda.Event(enable_timing=True)
+
 
             for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in train_data:
 
@@ -146,8 +151,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 optimizer.zero_grad()
                 susage.train()
 
-                torch.cuda.synchronize()
-                t1 = time.time()
+                e1.record()
 
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
@@ -156,8 +160,10 @@ def train(rank, devices, world_size, graph_data, buffer):
                 
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
 
+                e2.record()
                 torch.cuda.synchronize()
-                data_movement_time += time.time() - t1
+                data_movement_time += e1.elapsed_time(e2)
+
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 loss_train = loss(output, out_label, args.sigmoid_loss, device)
                 loss_train.backward()
@@ -169,8 +175,9 @@ def train(rank, devices, world_size, graph_data, buffer):
                 
                 optimizer.step()
 
+                e3.record()
                 torch.cuda.synchronize()
-                execution_time += time.time() - t1
+                execution_time += e1.elapsed_time(e3)
 
                 train_losses += [loss_train.detach().tolist()]
                 del loss_train
@@ -193,7 +200,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                     loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
+                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time / 1000, communication_time / 1000, execution_time / 1000, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
