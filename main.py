@@ -156,8 +156,8 @@ def train(rank, devices, world_size, graph_data, buffer):
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
-                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]]
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu]
+                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
 
                 e2.record()
                 torch.cuda.synchronize()
