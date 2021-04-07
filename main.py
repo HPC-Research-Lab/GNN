@@ -151,6 +151,12 @@ def train(rank, devices, world_size, graph_data, buffer):
                 optimizer.zero_grad()
                 susage.train()
 
+
+                adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
+                out_label = out_label.to(device).to_dense()
+                
+
+
                 e1.record()
 
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
@@ -188,6 +194,10 @@ def train(rank, devices, world_size, graph_data, buffer):
 
                 for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in val_data:    
 
+                    adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
+                    out_label = out_label.to(device).to_dense()
+
+
                     input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                     for i in range(world_size):
@@ -217,6 +227,11 @@ def train(rank, devices, world_size, graph_data, buffer):
             total = 0.0
 
             for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in test_data:    
+
+                adjs = [custom_sparse_ops.create_coo_tensor(adj[0].to(device), adj[1].to(device), adj[2].to(device), adj[3].to(device), adj[4], adj[5]) for adj in adjs]
+                out_label = out_label.to(device).to_dense()
+
+
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
