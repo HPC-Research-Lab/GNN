@@ -9,4 +9,3 @@ output/*
 dataset/*
 build/*
 test.py
-*.output

@@ -33,12 +33,12 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
     adj = U[: , after_nodes]
 
 
-    fullrowptr = torch.from_numpy(U.indptr.astype(np.int32))
-    rowptr = torch.from_numpy(adj.indptr.astype(np.int32))
-    colidx = torch.from_numpy(adj.indices.astype(np.int16))
-    normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32))
+    fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+    rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+    colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device)
+    normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
-    adj = (fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+    adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
     layer_idx = 0
     for d in range(len(orders1)):
@@ -56,13 +56,13 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
 
         adj = U[:, after_nodes]
 
-        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32))
-        rowptr = torch.from_numpy(adj.indptr.astype(np.int32))
-        colidx = torch.from_numpy(adj.indices.astype(np.int16))
-        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32))
+        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+        rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+        colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device)
+        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
 
-        adj = (fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
         adjs.append(adj)
 
@@ -83,7 +83,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
         input_nodes_mask_on_devices.append(input_nodes_devices == devices[i])
         nodes_idx_on_devices.append(idx_of_nodes_on_device[after_nodes[input_nodes_mask_on_devices[i]]].copy())
 
-    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(after_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]), sampled_nodes
+    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(after_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]).to(device).to_dense(), sampled_nodes
 
 
 
@@ -129,12 +129,12 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
 
         adj = U[: , after_nodes]
 
-        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32))
-        rowptr = torch.from_numpy(adj.indptr.astype(np.int32))
-        colidx = torch.from_numpy(adj.indices.astype(np.int16))
-        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32))
+        fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
+        rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
+        colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device)
+        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
-        adj = (fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
 
         adjs.append(adj)
         
@@ -155,7 +155,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
         input_nodes_mask_on_devices.append(input_nodes_devices == devices[i])
         nodes_idx_on_devices.append(idx_of_nodes_on_device[previous_nodes[input_nodes_mask_on_devices[i]]].copy())
 
-    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]), sampled_nodess
+    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]).to(device).to_dense(), sampled_nodes
 
 
 iter_num = 0
