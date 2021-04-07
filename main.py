@@ -151,6 +151,8 @@ def train(rank, devices, world_size, graph_data, buffer):
                 optimizer.zero_grad()
                 susage.train()
 
+                for d in devices:
+                    torch.cuda.synchronize(d)
                 e1.record()
 
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
@@ -160,7 +162,8 @@ def train(rank, devices, world_size, graph_data, buffer):
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
 
                 e2.record()
-                torch.cuda.synchronize()
+                for d in devices:
+                    torch.cuda.synchronize(d)
                 data_movement_time += e1.elapsed_time(e2)
 
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
@@ -175,7 +178,8 @@ def train(rank, devices, world_size, graph_data, buffer):
                 optimizer.step()
 
                 e3.record()
-                torch.cuda.synchronize()
+                for d in devices:
+                    torch.cuda.synchronize(d)
                 execution_time += e1.elapsed_time(e3)
 
                 train_losses += [loss_train.detach().tolist()]
