@@ -32,7 +32,7 @@ parser.add_argument('--model', type=str, default='graphsage',
                     help='GNN model: graphsage/gcn')
 parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
-parser.add_argument('--epoch_num', type=int, default= 20,
+parser.add_argument('--epoch_num', type=int, default= 4,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default=4,
                     help='Number of Pool')
@@ -71,8 +71,6 @@ def init_process(rank, devices, world_size, fn, graph_data, buffer, backend='ncc
 
 
 def train(rank, devices, world_size, graph_data, buffer):
-
-    torch.manual_seed(1234)
 
     device = devices[rank]
     torch.cuda.set_device(device)
@@ -129,47 +127,45 @@ def train(rank, devices, world_size, graph_data, buffer):
         data_movement_time = 0.0
         communication_time = 0.0
 
-        
-        iter = 0
-
         for epoch in np.arange(args.epoch_num):
             susage.train()
             train_losses = []
 
-            train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
+            train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
 
-            e1 = torch.cuda.Event(enable_timing=True)
-            e3 = torch.cuda.Event(enable_timing=True)
+            iter = 0
 
-            for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in train_data:
+            for fut in as_completed(train_data):
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
 
                 iter += 1
 
                 optimizer.zero_grad()
                 susage.train()
 
-                e1.record()
+                torch.cuda.synchronize()
+                t1 = time.time()
 
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
                     input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
+                
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
 
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 loss_train = loss(output, out_label, args.sigmoid_loss, device)
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
-
+                # communication is expensive
                 if world_size > 1 and iter % 8 == 0:
-                    average_model(susage, world_size)
+                    average_grad(susage)
                 
                 optimizer.step()
 
-                e3.record()
                 torch.cuda.synchronize()
-                execution_time += e1.elapsed_time(e3)
+                execution_time += time.time() - t1
 
                 train_losses += [loss_train.detach().tolist()]
                 del loss_train
@@ -177,22 +173,22 @@ def train(rank, devices, world_size, graph_data, buffer):
         
             if rank == 0:
                 susage.eval()
-                val_data = prepare_data(pool, lambda p: sampler(*p), valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+                val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
 
-                for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in val_data:    
-
+                for fut in as_completed(val_data):    
+                    adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                     input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                     for i in range(world_size):
                         input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                     
-                    input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
+                    input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
 
                     output = susage.forward(input_feat_data, adjs, sampled_nodes)
                     pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                     loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
                     valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time / 1000, communication_time / 1000, execution_time / 1000, np.average(train_losses), loss_valid, valid_f1), flush=True)
+                    print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
                     if valid_f1 > best_val + 1e-2:
                         best_val = valid_f1
                         torch.save(susage, './save/best_model.pt')
@@ -204,18 +200,19 @@ def train(rank, devices, world_size, graph_data, buffer):
             best_model.eval()
             best_model.cpu()
 
-            test_data = prepare_data(pool, lambda p: sampler(*p), test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
             correct = 0.0
             total = 0.0
 
-            for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in test_data:    
+            for fut in as_completed(test_data):    
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
                     input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
                     
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -246,12 +243,11 @@ if __name__ == "__main__":
     elif args.model == 'gcn':
         lap_matrix = row_normalize(graph_data[0] + sp.eye(graph_data[0].shape[0]))
 
-  
     orders = args.orders.split(',')
-    orders = [int(t) for t in orders]
+    orders = [int(t) for t in orders] 
 
     # buffer: device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders),  alpha=args.alpha)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha)
 
     graph_data = create_shared_input_object(lap_matrix, graph_data)
 
