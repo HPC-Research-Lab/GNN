@@ -7,6 +7,7 @@ from ogb.nodeproppred import PygNodePropPredDataset
 from torch_geometric.utils import to_undirected, dropout_adj
 import multiprocessing as mp
 import pickle
+import matplotlib
 
 
 
@@ -100,10 +101,40 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
 
     fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).buf'
 
-    if not os.path.exists(fname):
+    if True or not os.path.exists(fname):
         sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
         for i in range(num_conv_layers-1):
             sample_prob *= lap_matrix
+
+      #  visit_count = np.sort(sample_prob)[::-1]
+      #  visit_count = visit_count / sum(visit_count)
+      #  a = np.cumsum(visit_count)
+
+       # matplotlib.rcParams['pdf.fonttype'] = 42
+       # matplotlib.rcParams['ps.fonttype'] = 42
+        
+        #font = {
+        #'size'   : 20}
+
+        #matplotlib.rc('font', **font)
+
+        #fig, ax = plt.subplots()
+        #plt.yscale("log")
+        #x = np.arange(len(a))
+        #px = len(a)//5
+        #py = a[px]
+        #x = x / len(x)
+        #ax.plot(x, a)
+
+        #plt.axhline(y=py, xmin=0, xmax= (px)/len(x)+0.016, color='k', linewidth=1, linestyle='--')
+        #plt.axvline(x=px/len(x), ymin=0, ymax=py-0.01, color='k', linewidth=1, linestyle='--')
+
+        #ax.set(xlabel='Percentage of Nodes', ylabel='Percentage of Accesses')
+        #fig.tight_layout()
+        #fig.savefig(f'output/{dataset}_hist.pdf')
+        #plt.show()
+
+        #sys.exit(-1)
         #print('skewness: ', len(sample_prob) * np.max(sample_prob) / np.sum(sample_prob))
 
 

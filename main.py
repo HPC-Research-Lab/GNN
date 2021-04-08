@@ -139,10 +139,7 @@ def train(rank, devices, world_size, graph_data, buffer):
             train_data = prepare_data(pool, lambda p: sampler(*p), train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
 
             e1 = torch.cuda.Event(enable_timing=True)
-            e2 = torch.cuda.Event(enable_timing=True)
             e3 = torch.cuda.Event(enable_timing=True)
-            e4 = torch.cuda.Event(enable_timing=True)
-
 
             for adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes in train_data:
 
@@ -151,8 +148,6 @@ def train(rank, devices, world_size, graph_data, buffer):
                 optimizer.zero_grad()
                 susage.train()
 
-                for d in devices:
-                    torch.cuda.synchronize(d)
                 e1.record()
 
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
@@ -160,11 +155,6 @@ def train(rank, devices, world_size, graph_data, buffer):
                 for i in range(world_size):
                     input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device)
-
-                e2.record()
-                for d in devices:
-                    torch.cuda.synchronize(d)
-                data_movement_time += e1.elapsed_time(e2)
 
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 loss_train = loss(output, out_label, args.sigmoid_loss, device)
@@ -178,8 +168,7 @@ def train(rank, devices, world_size, graph_data, buffer):
                 optimizer.step()
 
                 e3.record()
-                for d in devices:
-                    torch.cuda.synchronize(d)
+                torch.cuda.synchronize()
                 execution_time += e1.elapsed_time(e3)
 
                 train_losses += [loss_train.detach().tolist()]
