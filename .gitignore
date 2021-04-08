@@ -8,3 +8,4 @@ output/*
 dataset/*
 build/*
 test.py
+run.sh

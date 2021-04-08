@@ -153,20 +153,14 @@ def train(rank, devices, world_size, graph_data, buffer):
                 
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
 
-                torch.cuda.synchronize()
-                data_movement_time += time.time() - t1
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 loss_train = loss(output, out_label, args.sigmoid_loss, device)
                 loss_train.backward()
                 torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
                 # communication is expensive
-                torch.cuda.synchronize()
-                t2 = time.time()
-                if world_size > 1 and iter % 4 == 0:
+                if world_size > 1 and iter % 8 == 0:
                     average_grad(susage)
-                torch.cuda.synchronize()
-                communication_time += time.time() - t2
                 
                 optimizer.step()
 
@@ -239,8 +233,10 @@ if __name__ == "__main__":
     processes = []
     torch.multiprocessing.set_start_method('spawn')
 
-    graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
-    #graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    if 'ogbn' in args.dataset:
+        graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+    else:
+        graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
