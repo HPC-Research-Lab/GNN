@@ -10,3 +10,4 @@ dataset/*
 build/*
 test.py
 run.sh
+*.sh
