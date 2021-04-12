@@ -176,7 +176,7 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             idxs = torch.LongTensor(len(target_nodes))
             idxs[chunk_start:chunk_end] = torch.randperm(chunk_end-chunk_start) + chunk_start
             #print(idxs)
-        if (num_batches % batch_size):
+        if ((chunk_end - chunk_start) % batch_size):
           num_batches += 1
         for i in range(0, num_batches, 32):   # 32 is the queue size
             futures = []
