@@ -10,3 +10,5 @@ python main.py --dataset='reddit' --cuda='0' --alpha 0 --batch_size 512 --epoch_
 
 
 git clone https://github.com/HPC-Research-Lab/GNN.git
+
+git remote add origin  https://songshsongsh:1q2w3e4r5t-SSH@github.com/HPC-Research-Lab/GNN.git
