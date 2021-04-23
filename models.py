@@ -27,7 +27,7 @@ class GraphSageConvolution(nn.Module):
             feat = self.linearW(feat)
             feat = 0.9 * feat + 0.1 * y[self.order_id][sampled_nodes,:]
             y[self.order_id][sampled_nodes,:] = feat.detach()
-            unsampled_nodes = list(set(range(nodes_of_every_p))-set(sampled_nodes))
+            unsampled_nodes = list(set(range(total_nodes))-set(sampled_nodes))
             y[self.order_id][unsampled_nodes,:] = 0.1 * y[self.order_id][unsampled_nodes,:]
 
             feat = torch.cat([self.linearB(x[sampled_nodes]), feat], 1)
