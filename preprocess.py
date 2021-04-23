@@ -94,7 +94,6 @@ def load_ogbn_data(graph_name, root_dir):
 
 
 def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1):
-    
     _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
     
     num_devs = len(devices)

@@ -1,0 +1,12 @@
+conda activate /data/not_backed_up/ssong10/conda_env
+export GNN_DATA_DIR=/data/not_backed_up/shared/ogbn_data
+export GNN_DATA_DIR=/data/not_backed_up/shared/graphsaint_data
+
+python main.py --dataset='ogbn-products' --cuda='0' --alpha 0 --batch_size 2048 --epoch_num 100 --buffer_size 1000000 --model='graphsage' --sampler='ladies' --order='1,1,0'
+python main.py --dataset='ogbn-products' --cuda='0' --alpha 0 --batch_size 2048 --epoch_num 100 --buffer_size 1000000 --model='gcn' --sampler='subgraph' --order='1,1,0'
+
+python main.py --dataset='reddit' --cuda='0' --alpha 0 --batch_size 512 --epoch_num 100 --buffer_size 100000 --model='gcn' --sampler='subgraph' --order='1,1,1,0' --samp_num 1024
+python main.py --dataset='reddit' --cuda='0' --alpha 0 --batch_size 512 --epoch_num 100 --buffer_size 100000 --model='graphsage' --sampler='ladies' --order='1,1,1,0' --samp_num 1024
+
+
+git clone https://github.com/HPC-Research-Lab/GNN.git
