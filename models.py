@@ -24,15 +24,12 @@ class GraphSageConvolution(nn.Module):
             self.y = y
             self.idx = idx
             self.p = p
-            self.feat_id = 0
     def forward(self, x, adj, sampled_nodes, nodes_per_layer, iterations):
         if self.training == True:
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
-                if self.idx > 0:
-                    self.feat_id = self.y[1].shape[1]
-                feat[:,self.feat_id:] = 0.9 * feat[:,self.feat_id:] + 0.1 * self.y[self.idx][nodes_per_layer,:]
-                self.y[self.idx][nodes_per_layer,:] = feat[:,self.feat_id:].detach()
+                feat =  0.9 * self.y[self.idx][nodes_per_layer,:] + 0.1 * feat
+                self.y[self.idx][nodes_per_layer,:] = feat.detach()
                 index = torch.ones(self.y[0].shape[0], dtype=bool)
                 index[nodes_per_layer] = False
                 self.y[self.idx][index] *= 0.9 
