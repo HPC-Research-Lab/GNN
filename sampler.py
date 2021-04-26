@@ -32,7 +32,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
     after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)    
 
     #     Add output nodes for self-loop
-    after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
+    #after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
 
     adj = U[: , after_nodes]
 
