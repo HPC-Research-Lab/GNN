@@ -51,6 +51,7 @@ parser.add_argument('--buffer_size', type=int, default=250000,
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--test', action='store_true', default=False)
+parser.add_argument('--sco', action='store_true', default=False)
 parser.add_argument('--alpha', type=float, default=1.0)
 parser.add_argument('--sampler', type=str, default='ladies')
 parser.add_argument('--p', type=int, default=4,
@@ -104,7 +105,7 @@ def train(rank, devices, world_size):
                     y.append(torch.FloatTensor(lap_matrix.shape[0], args.nhid).to(device))
                 else:
                     y.append(None)
-        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p).to(device)
+        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco).to(device)
 
     susage  = GNN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
     susage.to(device) 

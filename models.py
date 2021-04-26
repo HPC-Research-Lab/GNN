@@ -28,8 +28,7 @@ class GraphSageConvolution(nn.Module):
         if self.training == True:
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
-                feat =  0.9 * self.y[self.idx][nodes_per_layer,:] + feat - 0.9 * feat.detach()
-                self.y[self.idx][nodes_per_layer,:] = feat.detach()
+                feat =  0.9 * self.y[self.idx][nodes_per_layer] + 0.1 * feat
                 index = torch.ones(self.y[0].shape[0], dtype=bool)
                 index[nodes_per_layer] = False
                 self.y[self.idx][index] *= 0.9 
@@ -74,7 +73,7 @@ class GraphSage(nn.Module):
 
 
 class GraphConvolution(nn.Module):
-    def __init__(self, n_in, n_out, order, y=None, idx=-1, p=0, bias=True):
+    def __init__(self, n_in, n_out, order, y=None, idx=-1, p=0, sco=False):
         super(GraphConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
@@ -82,17 +81,18 @@ class GraphConvolution(nn.Module):
         self.offset = nn.Parameter(torch.zeros(n_out))
         self.scale = nn.Parameter(torch.ones(n_out))
         self.order = order
+        self.sco = sco
         if (self.training == True):
             self.y = y
             self.idx = idx
             self.p = p
 
     def forward(self, x, adj, sampled_nodes, nodes_per_layer, iterations):
-        if (self.training == True):
+        if (self.training == True and self.sco == True):
             feat = x
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, feat)
-                feat = 0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat
+                feat = 0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
                 self.y[self.idx][nodes_per_layer] = feat.detach()
                 index = torch.ones(self.y[0].shape[0], dtype=bool)
                 index[nodes_per_layer] = False
@@ -113,15 +113,15 @@ class GraphConvolution(nn.Module):
 
 
 class GCN(nn.Module):
-    def __init__(self, nfeat, nhid, orders, dropout, y=None, p=0, iteration=0):
+    def __init__(self, nfeat, nhid, orders, dropout, y=None, p=0, iteration=0, sco=False):
         super(GCN, self).__init__()
         layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConvolution(nfeat, nhid, orders[0], y=y, idx=0, p=p))
+        self.gcs.append(GraphConvolution(nfeat, nhid, orders[0], y=y, idx=0, p=p, sco=sco))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConvolution(nhid, nhid, orders[i+1], y=y, idx=i+1, p=p))
+            self.gcs.append(GraphConvolution(nhid, nhid, orders[i+1], y=y, idx=i+1, p=p, sco=sco))
     def forward(self, x, adjs, sampled_nodes, nodes_per_layer, iterations):
         '''
             The difference here with the original GCN implementation is that

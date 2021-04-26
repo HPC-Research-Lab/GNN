@@ -1,10 +1,12 @@
 from utils import *
 import custom_sparse_ops
+from deprecated import deprecated
 
 
 
 
-def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices):
+@deprecated
+def subgraph_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices):
 
     np.random.seed(seed)
     previous_nodes = batch_nodes
@@ -91,7 +93,7 @@ def subgraph_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, la
 
 
 
-def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices):
+def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices):
     '''
         LADIES_Sampler: Sample a fixed number of nodes per layer. The sampling probability (importance)
                          is computed adaptively according to the nodes sampled in the upper layer.
@@ -103,6 +105,7 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
     orders1 = orders[::-1]
     sampled_nodes = []
     nodes_per_layer = []
+    normfact_col = torch.FloatTensor([len(batch_nodes)/num_train_nodes] * len(batch_nodes)).to(device)
 
     nnz = 0
     '''
@@ -138,9 +141,10 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
 
         rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
         colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device) 
-        normfact = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
+        normfact_row = normfact_col.clone()
+        normfact_col = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
-        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact, adj.shape[0], adj.shape[1])
+        adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact_row, normfact_col, adj.shape[0], adj.shape[1])
 
         adjs.append(adj)
         
@@ -194,14 +198,14 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
                 target_nodes_chunk = target_nodes[idxs[chunk_start+j*batch_size: min(chunk_start+(j+1)*batch_size, chunk_end)]]
                 if not hasattr(target_nodes_chunk, '__len__'):
                     target_nodes_chunk = [target_nodes_chunk]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, len(target_nodes), samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
             yield from futures
     elif mode == 'val':
         futures = []
         # sample a batch with more neighbors for validation
         idx = torch.randperm(len(target_nodes))[:batch_size]
         batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, 1,  device, devices))
+        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, len(target_nodes), samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, 1,  device, devices))
         yield from futures
     elif mode == 'test':
         num_batches = len(target_nodes) // batch_size
@@ -211,6 +215,6 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, len(target_nodes), samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
             yield from futures
 

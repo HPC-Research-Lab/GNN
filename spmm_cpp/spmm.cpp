@@ -5,7 +5,7 @@ torch::Tensor spmm_cuda_v2(torch::Tensor sparseMat, torch::Tensor denseMat);
 
 torch::Tensor spmm_cuda_v3(torch::Tensor row, torch::Tensor col, torch::Tensor value, int nrows, torch::Tensor denseMat);
 
-torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int64_t nrows, int64_t ncols);
+torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact_row, torch::Tensor normfact_col, int64_t nrows, int64_t ncols);
 
 #define CHECK_CUDA(x) \
   TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor")
@@ -41,12 +41,13 @@ torch::Tensor spmm_naive(torch::Tensor sparseMat, torch::Tensor denseMat) {
 	return spmm_cuda_v1(sparseMat, denseMat);
 }
 
-torch::Tensor create_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int nrows, int ncols) {
+torch::Tensor create_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact_row, torch::Tensor normfact_col, int nrows, int ncols) {
 	CHECK_DENSE(fullrowptr);
 	CHECK_DENSE(rowptr);
 	//CHECK_DENSE(colidx);
-	CHECK_DENSE(normfact);
-	return to_coo_tensor(fullrowptr, rowptr, colidx, normfact, nrows, ncols);
+	CHECK_DENSE(normfact_row);
+	CHECK_DENSE(normfact_col);
+	return to_coo_tensor(fullrowptr, rowptr, colidx, normfact_row, normfact_col, nrows, ncols);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

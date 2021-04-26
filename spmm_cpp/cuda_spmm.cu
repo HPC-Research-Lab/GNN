@@ -790,20 +790,21 @@ __global__ void _create_coo_tensor_kernel(
     const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> fullrowptr, 
     const torch::PackedTensorAccessor32<int32_t, 1, torch::RestrictPtrTraits> rowptr,
     const torch::PackedTensorAccessor<int16_t, 1, torch::RestrictPtrTraits> colidx,
-    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> normfact
+    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> normfact_row, 
+    const torch::PackedTensorAccessor32<float, 1, torch::RestrictPtrTraits> normfact_col 
 ) {
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   if (tid < rowptr.size(0) - 1) {
     for (int i = rowptr[tid]; i < rowptr[tid+1]; i++) {
       indices[0][i] = tid;
       indices[1][i] = colidx[i];
-      value[i] = 1. / (fullrowptr[tid+1] - fullrowptr[tid]) * normfact[colidx[i]];
+      value[i] = 1. / (fullrowptr[tid+1] - fullrowptr[tid]) * normfact_col[colidx[i]] * normfact_row[tid];
     }
   }
 }
 
 
-torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact, int64_t nrows, int64_t ncols) {
+torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torch::Tensor colidx, torch::Tensor normfact_row, torch::Tensor normfact_col, int64_t nrows, int64_t ncols) {
 
     at::DeviceGuard g(colidx.device());
 
@@ -818,7 +819,7 @@ torch::Tensor to_coo_tensor(torch::Tensor fullrowptr, torch::Tensor rowptr, torc
     nthreads.x = 256;
     nblocks.x = DIV(rowptr.size(0)-1, nthreads.x);
 
-    _create_coo_tensor_kernel<<<nblocks, nthreads>>>(indices.packed_accessor64<int64_t, 2, torch::RestrictPtrTraits>(), value.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), fullrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor<int16_t, 1, torch::RestrictPtrTraits>(), normfact.packed_accessor32<float, 1, torch::RestrictPtrTraits>());
+    _create_coo_tensor_kernel<<<nblocks, nthreads>>>(indices.packed_accessor64<int64_t, 2, torch::RestrictPtrTraits>(), value.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), fullrowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), rowptr.packed_accessor32<int32_t, 1, torch::RestrictPtrTraits>(), colidx.packed_accessor<int16_t, 1, torch::RestrictPtrTraits>(), normfact_row.packed_accessor32<float, 1, torch::RestrictPtrTraits>(), normfact_col.packed_accessor32<float, 1, torch::RestrictPtrTraits>());
 
     CUDA_CALL(cudaDeviceSynchronize()); 
 
