@@ -28,7 +28,7 @@ class GraphSageConvolution(nn.Module):
         if self.training == True:
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
-                feat =  0.9 * self.y[self.idx][nodes_per_layer,:] + 0.1 * feat
+                feat =  0.9 * self.y[self.idx][nodes_per_layer,:] + feat - 0.9 * feat.detach()
                 self.y[self.idx][nodes_per_layer,:] = feat.detach()
                 index = torch.ones(self.y[0].shape[0], dtype=bool)
                 index[nodes_per_layer] = False
@@ -92,7 +92,7 @@ class GraphConvolution(nn.Module):
             feat = x
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, feat)
-                feat = 0.9 * self.y[self.idx][nodes_per_layer] + 0.1 * feat
+                feat = 0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat
                 self.y[self.idx][nodes_per_layer] = feat.detach()
                 index = torch.ones(self.y[0].shape[0], dtype=bool)
                 index[nodes_per_layer] = False
