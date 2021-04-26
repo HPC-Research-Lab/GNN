@@ -105,7 +105,7 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
     orders1 = orders[::-1]
     sampled_nodes = []
     nodes_per_layer = []
-    normfact_col = torch.FloatTensor([len(batch_nodes)/num_train_nodes] * len(batch_nodes)).to(device)
+    normfact_col = torch.FloatTensor([1] * len(batch_nodes)).to(device)
 
     nnz = 0
     '''
