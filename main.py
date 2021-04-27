@@ -90,7 +90,7 @@ def train(rank, devices, world_size):
                 y.append(torch.zeros(lap_matrix.shape[0], feat_data.shape[1]).to(device))
             for i in range(1, len(orders)):
                 if orders[i] > 0:
-                    y.append(torch.FloatTensor(lap_matrix.shape[0], (1+orders[i])*args.nhid).to(device))
+                    y.append(torch.zeros(lap_matrix.shape[0], (1+orders[i])*args.nhid).to(device))
                 else:
                     y.append(None)
         encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco).to(device)
@@ -102,7 +102,7 @@ def train(rank, devices, world_size):
                 y.append(torch.zeros(lap_matrix.shape[0], feat_data.shape[1]).to(device))
             for i in range(1, len(orders)):
                 if orders[i] > 0:
-                    y.append(torch.FloatTensor(lap_matrix.shape[0], args.nhid).to(device))
+                    y.append(torch.zeros(lap_matrix.shape[0], args.nhid).to(device))
                 else:
                     y.append(None)
         encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco).to(device)
