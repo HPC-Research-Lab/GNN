@@ -93,7 +93,7 @@ def train(rank, devices, world_size):
                     y.append(torch.FloatTensor(lap_matrix.shape[0], (1+orders[i])*args.nhid).to(device))
                 else:
                     y.append(None)
-        encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p).to(device)
+        encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco).to(device)
 
     elif args.model == 'gcn':
         for oiter in range(1):
