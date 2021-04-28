@@ -170,11 +170,6 @@ def train(rank, devices, world_size):
                         param.grad.data = grad[start:start+param.grad.data.numel()].view(param.grad.data.size())
                         start += param.grad.data.numel()
             
-
-
-            #if world_size > 1:
-            #    average_grad(models, rank, world_size)
-            
             optimizer.step()
 
             torch.cuda.synchronize(device)
