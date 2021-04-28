@@ -100,6 +100,7 @@ class GraphConvolution(nn.Module):
                 index[nodes_per_layer] = False
                 self.y[self.idx][index] *= 0.9 
 
+
             out = F.elu(self.linear(feat))
             mean = out.mean(dim=1).view(out.shape[0],1)
             var = out.var(dim=1, unbiased=False).view(out.shape[0], 1) + 1e-9

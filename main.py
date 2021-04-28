@@ -171,6 +171,7 @@ def train(rank, devices, world_size):
                         start += param.grad.data.numel()
             
 
+
             #if world_size > 1:
             #    average_grad(models, rank, world_size)
             

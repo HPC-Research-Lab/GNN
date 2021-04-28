@@ -159,6 +159,7 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
     nodes_per_layer.reverse()
     normfact_row_list.reverse()
 
+
     input_nodes_mask_on_devices = []
     nodes_idx_on_devices = []
     input_nodes_devices = device_id_of_nodes[previous_nodes]
