@@ -105,7 +105,8 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
     orders1 = orders[::-1]
     sampled_nodes = []
     nodes_per_layer = []
-    normfact_col = torch.FloatTensor([1] * len(batch_nodes)).to(device)
+    normfact_col = torch.FloatTensor([num_train_nodes / len(batch_nodes)] * len(batch_nodes)).to(device)
+    normfact_row_list = []
 
     nnz = 0
     '''
@@ -132,7 +133,7 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
         samp_num_d = samp_num_list[d]
         s_num = np.min([np.sum(p > 0), samp_num_d])
         #     sample the next layer's nodes based on the adaptively probability (p).
-        after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = False)
+        after_nodes = np.random.choice(num_nodes, s_num, p = p, replace = True)
         #after_nodes = random.choices(range(num_nodes), p, k=s_num)
         #     Add output nodes for self-loop
         after_nodes = np.unique(np.concatenate((after_nodes, previous_nodes)))
@@ -141,7 +142,8 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
 
         rowptr = torch.from_numpy(adj.indptr.astype(np.int32)).to(device)
         colidx = torch.from_numpy(adj.indices.astype(np.int16)).to(device) 
-        normfact_row = normfact_col.clone()
+        normfact_row = normfact_col
+        normfact_row_list.append(normfact_row)
         normfact_col = torch.from_numpy(1/np.clip(s_num * p[after_nodes], 1e-10, 1).astype(np.float32)).to(device)
 
         adj = custom_sparse_ops.create_coo_tensor(fullrowptr, rowptr, colidx, normfact_row, normfact_col, adj.shape[0], adj.shape[1])
@@ -155,6 +157,7 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
     adjs.reverse()
     sampled_nodes.reverse()
     nodes_per_layer.reverse()
+    normfact_row_list.reverse()
 
     input_nodes_mask_on_devices = []
     nodes_idx_on_devices = []
@@ -166,7 +169,7 @@ def ladies_sampler(seed, batch_nodes, num_train_nodes, samp_num_list, num_nodes,
         input_nodes_mask_on_devices.append(input_nodes_devices == devices[i])
         nodes_idx_on_devices.append(idx_of_nodes_on_device[previous_nodes[input_nodes_mask_on_devices[i]]].copy())
 
-    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]).to(device).to_dense(), sampled_nodes, nodes_per_layer
+    return adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, len(previous_nodes), sparse_mx_to_torch_sparse_tensor(labels_full[batch_nodes]).to(device).to_dense(), sampled_nodes, nodes_per_layer, normfact_row_list
 
 
 iter_num = 0

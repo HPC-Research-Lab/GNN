@@ -25,7 +25,7 @@ class GraphSageConvolution(nn.Module):
             self.y = y
             self.idx = idx
             self.p = p
-    def forward(self, x, adj, sampled_nodes, nodes_per_layer, iterations):
+    def forward(self, x, adj, sampled_nodes, nodes_per_layer, normfact_row, iterations):
         if self.sco == True and self.training == True:
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
@@ -63,13 +63,13 @@ class GraphSage(nn.Module):
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
             self.gcs.append(GraphSageConvolution((1+orders[i])*nhid,  nhid, orders[i+1], i+1, y=y, p=p, sco=sco))
-    def forward(self, x, adjs, sampled_nodes, nodes_per_layer, iterations):
+    def forward(self, x, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iterations):
         '''
             The difference here with the original GCN implementation is that
             we will receive different adjacency matrix for different layer.
         '''
         for idx in range(len(self.gcs)):
-            x = self.dropout(self.gcs[idx](x, adjs[idx], sampled_nodes[idx], nodes_per_layer[idx], iterations))
+            x = self.dropout(self.gcs[idx](x, adjs[idx], sampled_nodes[idx], nodes_per_layer[idx], normfact_row_list[idx], iterations))
         return x
 
 
@@ -124,7 +124,7 @@ class GCN(nn.Module):
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
             self.gcs.append(GraphConvolution(nhid, nhid, orders[i+1], y=y, idx=i+1, p=p, sco=sco))
-    def forward(self, x, adjs, sampled_nodes, nodes_per_layer, iterations):
+    def forward(self, x, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iterations):
         '''
             The difference here with the original GCN implementation is that
             we will receive different adjacency matrix for different layer.
@@ -139,8 +139,8 @@ class GNN(nn.Module):
         self.encoder = encoder
         self.dropout = nn.Dropout(dropout)
         self.linear  = nn.Linear(self.encoder.nhid, num_classes)
-    def forward(self, feat, adjs, sampled_nodes, nodes_per_layer, iterations):
-        x = self.encoder(feat, adjs, sampled_nodes, nodes_per_layer, iterations)
+    def forward(self, feat, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iterations):
+        x = self.encoder(feat, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iterations)
         x = F.normalize(x, p=2, dim=1)
         x = self.dropout(x)
         x = self.linear(x)

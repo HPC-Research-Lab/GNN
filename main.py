@@ -113,7 +113,7 @@ def train(rank, devices, world_size):
     clk = time.CLOCK_THREAD_CPUTIME_ID
 
 
-    optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
+    optimizer = optim.AdamW(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01, weight_decay=0.01)
     best_val = -1
     execution_time = 0.0
     data_movement_time = 0.0
@@ -129,7 +129,7 @@ def train(rank, devices, world_size):
 
 
         for fut in as_completed(train_data):
-            adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer = fut.result()
+            adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer, normfact_row_list = fut.result()
 
             iter += 1
             optimizer.zero_grad()
@@ -149,7 +149,7 @@ def train(rank, devices, world_size):
             torch.cuda.synchronize(device)
             data_movement_time += time.clock_gettime(clk) - t1
     
-            output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, iter-1)
+            output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iter-1)
 
 
             loss_train = loss(output, out_label, args.sigmoid_loss, device)
@@ -188,7 +188,7 @@ def train(rank, devices, world_size):
             val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
 
             for fut in as_completed(val_data):    
-                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer = fut.result()
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer, normfact_row_list = fut.result()
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
@@ -196,7 +196,7 @@ def train(rank, devices, world_size):
                 
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
 
-                output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, 0)
+                output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, 0)
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                 loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
                 valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
@@ -218,7 +218,7 @@ def train(rank, devices, world_size):
         total = 0.0
 
         for fut in as_completed(test_data):    
-            adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer = fut.result()
+            adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer, normfact_row_list = fut.result()
             input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
             for i in range(world_size):
@@ -226,7 +226,7 @@ def train(rank, devices, world_size):
             
             input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
                 
-            output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, 0)
+            output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, 0)
             pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
             test_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
             correct += test_f1 * out_label.shape[0]
