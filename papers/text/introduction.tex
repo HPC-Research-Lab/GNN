@@ -1,0 +1,11 @@
+\section{Introduction}
+Graph Neural Networks (GNNs) have become the state-of-the-art models for various machine learning tasks on graphs, such as node classification~\cite{kipf2017semi, duran2017learning}, link prediction~\cite{zhang2017weisfeiler, zhang2018link}, and graph classification~\cite{ying2018hierarchical, gilmer2017neural}. 
+Despite the success of GNNs, training deep GNNs on large graphs is challenging. 
+In each iteration of the training process, data need to be  recursively aggregated from  neighboring nodes. 
+As the number of nodes involved in the computation can be exponential with respect to the number of layers, this neighbor aggregation operation incurs a large computation and data movement overhead. 
+To alleviate the computational burden, various neighbor sampling methods have been proposed~\cite{hamilton2017inductive, ying2018graph, chen2018fastgcn, zou2019layer, AAAI1816642, chiang2019cluster, Zeng2020GraphSAINT}. 
+The idea is to compute an unbiased estimate of the aggregation result based on a sampled subset of neighbors. 
+
+Although neighbor sampling reduces the computation complexity of GNN training, the convergence property of these sampling-based training techniques have not been well studied. 
+The main issue is that the stochastic gradient computed in each iteration based on sampled neighbor aggregation is not an biased estimate of the true gradient. 
+
