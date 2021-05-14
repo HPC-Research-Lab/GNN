@@ -1,11 +1,48 @@
 \section{Introduction}
-Graph Neural Networks (GNNs) have become the state-of-the-art models for various machine learning tasks on graphs, such as node classification~\cite{kipf2017semi, duran2017learning}, link prediction~\cite{zhang2017weisfeiler, zhang2018link}, and graph classification~\cite{ying2018hierarchical, gilmer2017neural}. 
-Despite the success of GNNs, training deep GNNs on large graphs is challenging. 
-In each iteration of the training process, data need to be  recursively aggregated from  neighboring nodes. 
-As the number of nodes involved in the computation can be exponential with respect to the number of layers, this neighbor aggregation operation incurs a large computation and data movement overhead. 
-To alleviate the computational burden, various neighbor sampling methods have been proposed~\cite{hamilton2017inductive, ying2018graph, chen2018fastgcn, zou2019layer, AAAI1816642, chiang2019cluster, Zeng2020GraphSAINT}. 
-The idea is to compute an unbiased estimate of the aggregation result based on a sampled subset of neighbors. 
+Graph Neural Networks (GNNs) have become the state-of-the-art models for machine learning tasks on graph-structured data~\cite{kipf2017semi, duran2017learning, zhang2017weisfeiler, zhang2018link, ying2018hierarchical, gilmer2017neural}. 
+They have been applied to many application domains, including content recommendation~\cite{ying2018graph}, traffic prediction~\cite{zhang2018gaan},  drug discovery~\cite{li2018learning}, and molecular property prediction~\cite{gilmer2017neural}.  
 
-Although neighbor sampling reduces the computation complexity of GNN training, the convergence property of these sampling-based training techniques have not been well studied. 
-The main issue is that the stochastic gradient computed in each iteration based on sampled neighbor aggregation is not an biased estimate of the true gradient. 
+Despite the success of GNNs, it is hard to deploy GNNs to applications that involve large-scale graphs. 
+To train a GNN on a graph, data need to be recursively aggregated from all neighboring nodes in every iteration. 
+This recursive aggregation incurs a large computation and data movement overhead. 
+To alleviate the computation burden, various neighbor sampling methods have been proposed~\cite{hamilton2017inductive, ying2018graph, chen2018fastgcn, zou2019layer, AAAI1816642, chiang2019cluster, Zeng2020GraphSAINT}. 
+The idea is to compute an unbiased estimate of the aggregation result based on a sampled subset of the neighbors. 
+These sampling techniques enable GNN training on large graphs. 
+However, 
+due to the composition of the aggregation functions in multiple layers, 
+the stochastic gradient obtained with sampled neighbor aggregation is not an unbiased estimate of the true gradient, which undermines the convergence property of SGD-based training algorithms. 
+
+Previous work has shown that sampling-based GNN training is actually a Stochastic Compositional Optimization (SCO) problem~\cite{cong2020minimal, jiang2021communicationefficient, cong2021importance}. 
+Cong {\em et al.} show that SCO algorithms can achieve faster convergence than the commonly used Adam SGD for GNN training on small graphs (with less than one million nodes). 
+However, these SCO algortihms are impractical for training GNN on large graphs due to the large memory consumption. 
+Despite the different forms of SCO algorithms, they all need to maintain a moving average of the estimation result of the composite functions~\cite{yang2019multilevel, balasubramanian2020stochastic, chen2020solving, lian2017finite, wang2017accelerating, ghadimi2020single}. 
+For GNN training, they need to store the aggregation results of all nodes in the graph in each layer. 
+The larger the graphs, the more space these buffers of aggregated features need to take. 
+Since the GPU has limited memory, these SCO algorithms can easily run out of memory for large-scale GNN training, even with aggressive neighbor sampling. 
+While it is possible to store the buffers in CPU memory, copying the data from CPU to GPU in each iteration is expensive, which may negate the benefits of the faster convergence of SCO algorithms. 
+
+In this work, we target the large memory consumption issue of SCO algorithms and propose a new algorithm using sparse buffers of intermediate features for GNN training. 
+Instead of maintaining the moving average of the aggregation results of all nodes, our algorithm only stores the aggregated features of nodes sampled in the most recent iterations. 
+We show that when the number of iterations satisfies certain constraints the convergence rate of the original SCO algorithms can be preserved. 
+We also exploit the skewness of sampling probability distribution in real-world graphs and propose a more efficient buffering strategy that achieves faster convergence with smaller buffer size. 
+Our experiments with two different GNN models on different graphs validate our theoretical results and show that our algorithm achieves faster convergence than Adam SGD for GNN training with a small memory consumption. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

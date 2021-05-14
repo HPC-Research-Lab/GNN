@@ -1,0 +1,128 @@
+\section{Background and Motivation}
+To facilitate our discussion, we first give background on sampling-based GNN training and its relation to stochastic compositional optimization. 
+
+\subsection{GNN Computation}
+%Numerous GNN architectures have been proposed in recent years. 
+%Most of them follow a similar computation pattern~\cite{zhou2018graph}. 
+%Suppose we are given a graph $\mathcal{G}(\mathcal{V}, \mathcal{E})$ of $N = |\mathcal{V}|$ nodes and
+%$|\mathcal{E}|$ edges as input, where each node is associated with a feature
+%vector $x_i$. 
+The computation at each layer of a GNN is conducted in two steps: {\tt aggregate} and {\tt update}. 
+For each node $v$ in the graph, the  {\tt aggregate} function gathers data from its neighboring nodes and returns the aggregation result as 
+\begin{equation}
+    z_v = \mathrm{Agg}_v(h_{ne[v]}, x_v, x_{ne[v]}). 
+\end{equation}
+Here, $h_{ne[v]}$ is the intermediate features of $v$'s neighbors from the previous layer, $x_v$ is the input feature of $v$, and $x_{ne[v]}$ is the input features of $v$'s neighbors. 
+The {\tt update} function uses the aggregated value to produce the intermediate features of $v$ as 
+%\vspace{-.3em}
+\begin{equation}
+%\vspace{-.2em}
+    h_v = \mathrm{Upd}_v(z_v, x_v). 
+\end{equation}
+By stacking the intermediate features and the input features of all nodes, the computation at layer $l$ can be written as 
+\begin{equation}
+\label{eq:agg_upd}
+\begin{split}
+Z^{(l)}=\mathrm{Agg}(H^{(l-1)}, X), \;\;\;\;\;\;
+H^{(l)} = \mathrm{Upd}(Z^{(l)}, X, W^{(l)}).
+\end{split}
+\end{equation}
+Here, $H^{(l-1)}=[h^{(l-1)}_1,\ldots, h^{(l)}_N]$ denotes the intermediate features of all nodes at layer $l$$-$$1$, $Z^{(l)}\in \mathbb{R}_{N\times d_l}$ is the aggregated features of all nodes at layer $l$, $X = [x_1,\ldots,x_N]$ is the input features of all nodes, and $ W^{(l)}$ is the learnable weights. 
+As an example, Graph Convolutional Network (GCN)~\cite{kipf2017semi} has $\mathrm{Agg}(H^{(l-1)}, X)=PH^{(l-1)}$ where $P$ is the normalized Laplacian matrix of the graph, and $\mathrm{Upd}(Z^{(l)},X,  W^{(l)})=\sigma(Z^{(l)} W^{(l)})$ where $\sigma$ is a non-linear activation function.   
+Many other GNNs can be expressed in this form with different defintions of $\mathrm{Agg}$ and $\mathrm{Upd}$~\cite{zhou2018graph}. 
+
+
+
+
+
+ 
+
+\subsection{Sampling-based GNN Training as Stochastic Compositional Optimization}
+
+When the graph is large, the neigbhbor aggregation operation $\mathrm{Agg}$ incurs a large overhead, making the training of GNNs computationally challenging. 
+Therefore, prior work has proposed to replace the $\mathrm{Agg}$ function with a sampled neighbor aggregation operation $\widetilde{\mathrm{Agg}}$. 
+By sampling the neighboring nodes, an unbiased estimate of $Z^{(l)}$ is computed at each layer, i.e., 
+\begin{equation}
+  \widetilde{Z}^{(l)}=\widetilde{\mathrm{Agg}}(H^{(l-1)}, X)
+\end{equation}
+with $\mathbb{E}[\widetilde{Z}^{(l)}]=Z^{(l)}$. 
+%Some recent works have identified the connection between sampling-based GNN training  and multi-level stochastic compositional optimization (SCO)~\cite{cong2020minimal}. 
+%Since the convergence property of algorithms for multi-level SCO has been well studied~\cite{zhang2019multi, yang2019multilevel,  chen2020solving}, this connection will allow us to study the convergence of GNN training with different neighbor sampling methods. 
+%By sampling the neighboring nodes, an unbiased estimate $\widetilde{\mathrm{Agg}}$ is computed for the aggregate function. 
+If we define the computation at layer $l$ of the original GNN as a function 
+\begin{flalign}
+    f^{(l)}(Z^{(l-1)}, W^{(l-1)}, ..., W^{(T)})&=[Z^{(l)}, W^{(l)}, ..., W^{(T)}]\\ \nonumber 
+    &=[\mathrm{Agg}(\mathrm{Upd}(Z^{(l-1)}, X, W^{(l-1)})), W^{(l)}, ..., W^{(T)}]],
+\end{flalign}
+the computation with sampled neighbor aggregation can be written as a stochastic function
+\begin{flalign}
+\label{eq:forward}
+f^{(l)}_{\xi_l}(\widetilde{Z}^{(l-1)}, W^{(l-1)}, ..., W^{(T)})&=[\widetilde{Z}^{(l)}, W^{(l)}, ..., W^{(T)}]\\ \nonumber 
+&=[\widetilde{\mathrm{Agg}}(\mathrm{Upd}(\widetilde{Z}^{(l-1)}, X, W^{(l-1)})), W^{(l)}, ..., W^{(T)}]]
+\end{flalign}
+where ${\xi_l}$ represents the sampled neighbors at layer $l$. 
+Since $\widetilde{Z}^{(l)}$ is an unbiased estimate of $Z^{(l)}$, 
+we have $\mathbb{E}[f^{(l)}_{\xi_l}]=f^{(l)}$, and 
+the computation of a $T$-layer GNN can be written as 
+\begin{equation}
+\label{eq:loss}
+    F(\theta) = \mathbb{E}_{\xi_{T+1}}\left[ f_{\xi_{T+1}}^{(T+1)}\left( \mathbb{E}_{\xi_{T}}\left[f_{\xi_{T}}^{(T)}\left(...{E}_{\xi_1}[f^{(1)}(\theta)]...\right)\right] \right) \right]
+\end{equation}
+where $\theta=[X, W^{(1)}, ..., W^{(T)}]$, $f^{(T+1)}$ is the loss function, and $f_{\xi_{T+1}}^{(T+1)}$ corresponds to the estimated loss with mini-batch sampling. 
+Note that we put all the learnable weights in $\theta$ to formulate the computation as a stochastic compositional function. 
+Our goal is to minimize $F(\theta)$, which is exactly a multi-level SCO problem.  
+
+
+
+\subsection{Problem with A Naive Implementation}
+%The main difficulty of SCO is due to the composition of the stachastic functions. 
+%We are not able to an unbiased estimate of the gradient of $F(\theta)$.  
+SCO has been well studied in the past few years, and many algorithms with gauranteed convergence have been proposed~\cite{zhang2019multi, yang2019multilevel,  chen2020solving, yang2019multilevel, balasubramanian2020stochastic, chen2020solving, lian2017finite, wang2017accelerating, ghadimi2020single}. 
+It seems straightforward to adopt these SCO algorithms to achieve faster training of GNNs. 
+However, these algorithms have large memory consumption when applied to GNN training and cannot run on GPUs for large graphs.  
+
+To see the problem, let us consider the implementaion of a single-timescale SCO algorithm~\cite{balasubramanian2020stochastic} for GNN training. 
+Formally, the algorithm is written as 
+\begin{equation}
+  \label{eq:alg_step1}
+             y^{(1)}_{k+1} = (1-\beta_{k})y^{(1)}_k + \beta_{k}  f^{(1)}_{\xi_{1,k}}(\theta_{k}),
+ \end{equation}
+\begin{equation}
+         \label{eq:alg_step2}
+      y^{(l)}_{k+1} = (1-\beta_{k})y^{(l)}_k + \beta_{k}  f^{(l)}_{\xi_{l,k}}(y^{(l-1)}_{k+1}), \;\;\;\; 2\le l \le T,
+ \end{equation}
+ \begin{equation}
+  \label{eq:alg_step3}
+g_{k+1} = (1-\beta_{k})g_{k} + \beta_{k} \nabla f_{\xi_{1,k}}^{(1)}(\theta_k) \nabla f_{\xi_{2,k}}^{(2)}(y^{(1)}_k)\ldots \nabla  f_{\xi_{T,k}}^{(T)}(y^{(T-1)}_k)\nabla f_{\xi_{T+1,k}}^{(T+1)}(y^{(T)}_k),
+\end{equation}
+ \begin{equation}
+  \label{eq:alg_step4}
+\theta_{k+1} = \theta_{k} - \alpha_k g_{k+1}.
+\end{equation}
+
+\begin{wrapfigure}{r}{0.37\textwidth}
+  \centering
+  \vspace{-0.5em}
+  \includegraphics[scale=0.35]{figures/oom.pdf}
+  \vspace{-.5em}
+  \caption{Updating the moving average of $\widetilde{Z}^{(l)}$ in each iteration. }
+  \label{fig:oom}
+  \vspace{-1.5em}
+\end{wrapfigure}
+The key idea is to store an auxiliary variable $y^{(i)}$ to maintain the moving average of the value of each composite function. 
+Since $f^{(l)}_{\xi_l}$ returns the exact values of $W^{(l)}, ..., W^{(T)}$, we only need to maintain a moving average of $\widetilde{Z}^{(l)}$ for each layer\footnote{A more rigorious justification for this implementation can be found in the Supplmentary~\ref{}.}. 
+The computation is shown in Figure~\ref{fig:oom}. 
+The moving average of the aggregated features are stored in $\bar{Z}^{(l)}$ with one row for each node. 
+In each iteration, some nodes (rows) are sampled, and the estimate of the aggregation results $\widetilde{Z}^{(l)}$ are merged into $\bar{Z}^{(l)}$ based on Formula (\ref{eq:alg_step1}). 
+For the nodes that are not sampled, the corresponding rows of $\widetilde{Z}^{(l)}$ are zero, and we simply multiply the unsampled rows of  $\bar{Z}^{(l)}$ by $1-\beta_k$. 
+Since the number of rows of $\bar{Z}^{(l)}$ is the number of nodes in the graph, $\bar{Z}^{(l)}$ takes a large chunk of memory when the graph is large. 
+For example, for training a 3-layer GCN on a graph with two million nodes, suppose the hidden state dimension $d_l=512$ and a floating point has 4 bytes, $\bar{Z}$ takes $3\times 2\text{M} \times 512 \times 4=12$GB of memory. 
+All of the existing SCO algorithms need to maintain this moving average, which impedes their application to large-scale GNN training due to the large memory consumption. 
+
+
+
+
+
+
+
+

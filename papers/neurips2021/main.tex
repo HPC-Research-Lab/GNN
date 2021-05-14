@@ -26,8 +26,21 @@
 \usepackage{nicefrac}       % compact symbols for 1/2, etc.
 \usepackage{microtype}      % microtypography
 \usepackage{xcolor}         % colors
+\usepackage{amsthm,amssymb, amsmath}
+\usepackage{graphicx}
+\usepackage{wrapfig}
 
-\title{Buffering Intermediate Features for Faster Training of Graph Neural Networks}
+
+
+
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+            \node[shape=circle,draw,inner sep=.2pt] (char) {#1};}}
+            
+\newcommand{\Mod}[1]{\ \mathrm{mod}\ #1}
+
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+
+\title{Accelerating Graph Neural Network Training with Sparse Buffers of Aggregated Features}
 
 % The \author macro works with any number of authors. There are two commands
 % used to separate the names and addresses of multiple authors: \And and \AND.
@@ -69,10 +82,16 @@
 
 \input{text/abstract.tex}
 \input{text/introduction.tex}
-\input{text/checklist.tex}
-\input{text/appendix.tex}
+\input{text/background.tex}
+\input{text/method.tex}
+
 
 \bibliographystyle{abbrv}
 \bibliography{jp.bib}
+
+\newpage
+\input{text/checklist.tex}
+\newpage
+\input{text/appendix.tex}
 
 \end{document}
