@@ -1,5 +1,41 @@
-\section{Training GNNs with Sparse Buffers of Aggregated Features}
-We propose a new algorithm with a sparse buffering technique to reduce the memory consumption while maintaining the convergence property of the SCO algorithm. 
+\section{Sparse Moving Averages of Aggregated Features}
+To reduce the memory consumption of SCO algorithms for GNN training, we propose to store sparse moving averages of aggregated features. 
+The idea is that, instead of storing the moving averages of all nodes in the graph, we only store the moving averages of nodes that are sampled in the most recent iterations. 
+
+\begin{figure}
+  \begin{minipage}{.44\linewidth}
+    \centering
+  \includegraphics[scale=0.35]{figures/oom.pdf}
+  \caption{Updating moving average of $\widetilde{Z}^{(l)}$.}
+  \label{fig:oom}
+\end{minipage} 
+\hfill
+\begin{minipage}{.52\linewidth}
+  \centering
+    \includegraphics[scale=0.35]{figures/sparse_buffer.pdf}
+    \caption{Updating sparse moving average of $\widetilde{Z}^{(l)}$.}
+    \label{fig:sparse_buffer}
+\end{minipage}
+\end{figure}
+As shown in Figure~\ref{fig:sparse_buffer}, we maintain a fixed size buffer of the moving averages. 
+The buffer is divided into $p$ chunks with each chunk for the $\widetilde{Z}^{(l)}$ of one iteration. 
+Initially, the buffer is empty. 
+In every iteration, we first look up the sampled nodes of $\widetilde{Z}_k^{(l)}$ in the buffer. 
+For the nodes that are found in the buffer, we collect the corresponding rows of the buffer and add them to $\widetilde{Z}_k^{(l)}$ based on Formula (\ref{eq:alg_step1}). 
+For the nodes that are not found in the buffer, we directly multiply the corresponding rows of $\widetilde{Z}_k^{(l)}$ by $\beta_k$. 
+In this example, two of the sampled nodes are found in chunk-0 and chunk-1 of the buffer, and the other two sampled nodes are not found in the buffer. 
+The updated $\widetilde{Z}_k^{(l)}$ is then written to chunk-$(k\Mod{p})$.  
+All the other chunks are multiplied by $(1-\beta_k)$. 
+Algorithm~\ref{alg:merge} summarizes the procedure. 
+We maintain a dictionary of the node indices with their row numbers in the buffer....
+
+
+
+
+When $k\ge p$, storing $\widetilde{Z}_k^{(l)}$ to chunk-$(k\Mod{p})$ overwrites the $\widetilde{Z}_{k-p}^{(l)}$ stored in iteration $k-p$. 
+
+
+
 
 
 
