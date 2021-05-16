@@ -1,6 +1,6 @@
 \section{Sparse Moving Averages of Aggregated Features}
-To reduce the memory consumption of SCO algorithms for GNN training, we propose to store sparse moving averages of aggregated features. 
-The idea is that, instead of storing the moving averages of all nodes in the graph, we only store the moving averages of nodes that are sampled in the most recent iterations. 
+To reduce the memory consumption of SCO algorithms for GNN training, we propose to store sparse moving averages of the aggregated features. 
+Instead of storing the moving averages of all nodes in the graph, we only store the moving averages of nodes that are sampled in the most recent iterations. 
 
 \begin{figure}
   \begin{minipage}{.44\linewidth}
@@ -20,12 +20,13 @@ The idea is that, instead of storing the moving averages of all nodes in the gra
 As shown in Figure~\ref{fig:sparse_buffer}, we maintain a fixed size buffer of the moving averages. 
 The buffer is divided into $p$ chunks with each chunk for the $\widetilde{Z}^{(l)}$ of one iteration. 
 Initially, the buffer is empty. 
-In every iteration, we first look up the sampled nodes of $\widetilde{Z}_k^{(l)}$ in the buffer. 
+In every iteration, we first look up the sampled nodes in the buffer. 
 For the nodes that are found in the buffer, we collect the corresponding rows of the buffer and add them to $\widetilde{Z}_k^{(l)}$ based on Formula (\ref{eq:alg_step1}). 
 For the nodes that are not found in the buffer, we directly multiply the corresponding rows of $\widetilde{Z}_k^{(l)}$ by $\beta_k$. 
-In this example, two of the sampled nodes are found in chunk-0 and chunk-1 of the buffer, and the other two sampled nodes are not found in the buffer. 
+In this example, two of the sampled nodes are found in chunk-0 and chunk-1, and the other two sampled nodes are not found in the buffer. 
 The updated $\widetilde{Z}_k^{(l)}$ is then written to chunk-$(k\Mod{p})$.  
 All the other chunks are multiplied by $(1-\beta_k)$. 
+
 Algorithm~\ref{alg:merge} summarizes the procedure. 
 We maintain a dictionary of the node indices with their row numbers in the buffer....
 

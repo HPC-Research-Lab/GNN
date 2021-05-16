@@ -21,7 +21,7 @@ The larger the graphs, the more space these moving averages take.
 Since the GPU has limited memory, these SCO algorithms can easily run out of memory for large-scale GNN training, even with aggressive neighbor sampling. 
 While it is possible to store the moving averages in CPU memory, copying the data from CPU to GPU in each iteration is expensive, which may negate the benefits of the faster convergence of SCO algorithms. 
 
-In this work, we target the large memory consumption issue of SCO algorithms and propose a new algorithm that maintains sparse moving averages of aggregated features for GNN training. 
+In this work, we target the large memory consumption issue of SCO algorithms and propose a new algorithm that maintains sparse moving averages of the aggregated features for GNN training. 
 Instead of storing the moving averages of the aggregation results of all nodes, our algorithm only stores the aggregated features of nodes sampled in the most recent iterations. 
 We show that when the number of iterations satisfies certain constraints the convergence rate of the original SCO algorithms can be preserved. 
 We also exploit the skewness of sampling probability distribution in real-world graphs and propose a more efficient buffering strategy that further reduces the moving average size. 
