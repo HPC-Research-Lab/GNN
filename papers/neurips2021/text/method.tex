@@ -22,18 +22,95 @@ The buffer is divided into $p$ chunks with each chunk for the $\widetilde{Z}^{(l
 Initially, the buffer is empty. 
 In every iteration, we first look up the sampled nodes in the buffer. 
 For the nodes that are found in the buffer, we collect the corresponding rows of the buffer and add them to $\widetilde{Z}_k^{(l)}$ based on Formula (\ref{eq:alg_step1}). 
-For the nodes that are not found in the buffer, we directly multiply the corresponding rows of $\widetilde{Z}_k^{(l)}$ by $\beta_k$. 
-In this example, two of the sampled nodes are found in chunk-0 and chunk-1, and the other two sampled nodes are not found in the buffer. 
+For the nodes that are not found in the buffer, we multiply the corresponding rows of $\widetilde{Z}_k^{(l)}$ by $\beta_k$. 
+In this example, two of the sampled nodes are found in chunk-0 and chunk-1, and the other two are not found in the buffer. 
 The updated $\widetilde{Z}_k^{(l)}$ is then written to chunk-$(k\Mod{p})$.  
 All the other chunks are multiplied by $(1-\beta_k)$. 
-
-Algorithm~\ref{alg:merge} summarizes the procedure. 
-We maintain a dictionary of the node indices with their row numbers in the buffer....
+Since the sampled nodes found in the buffer are updated to chunk-$(k\Mod{p})$, the original values in chunk-0 and chunk-1 are invalidated, as shown by the shadowed rows in Figure~\ref{fig:sparse_buffer}. 
 
 
+\begin{algorithm}[t]
+  \small
+  \caption{Updating Sparse Moving Average of Aggregated Features}
+  \label{alg:update}
+  \KwIn{$node\_list$, $node\_dict$, $buffer^{(l)}$, $chunk\_size$, $sampled\_nodes$, $\widetilde{Z}_k^{(l)}$, $k$, $p$}
+  %\KwOut{$B=\{B_1,\ldots, B_n\}$}
+  \tcp{Get the starting and ending address of chunk-($k\Mod{p}$)}
+  $chunk\_start=(k\Mod{p}) * chunk\_size$\;
+  $chunk\_end=chunk\_start + chunk\_size$\;
+  \tcp{For each sampled node, check if it is stored in the buffer}
+  \For{$i=0$ \KwTo $sampled\_nodes.length-1$}{
+      $v=sampled\_nodes[i]$\;
+      \tcp{If the node is in the buffer}
+      \If{$v$ \textbf{\upshape in} $node\_dict$}{
+        $pos = node\_dict[v]$\;
+        \tcp{Update the moving average}
+        $\widetilde{Z}^{(l)}_k[i]=(1-\beta_k)*buffer^{(l)}[pos]+\beta_k*\widetilde{Z}^{(l)}_k[i]$\;
+        \tcp{Invalidate the original moving average of node $v$} 
+        $node\_list[pos]=-1$\;
+        \tcp{Overwrite the moving average of the nodes stored in chunk-($k\Mod{p}$)}
+        \lIf{$node\_list[chunk\_start+i] \neq -1$}{
+          $node\_dict$.remove($node\_list$[$chunk\_start+i$])
+        }
+        $node\_list[chunk\_start+i]=v$\;
+      }
+      \lElse{
+        $\widetilde{Z}^{(l)}_k[i]=\beta_k*\widetilde{Z}^{(l)}_k[i]$
+      }
+      \tcp{The moving averages of all buffered nodes are multiplied by $(1-\beta_k)$}
+      $buffer^{(l)}=(1-\beta_k)*buffer^{(l)}$\;
+      \tcp{The moving averages of the sampled nodes are updated with the new values}
+      $buffer^{(l)}[chunk\_start: chunk\_end]=\widetilde{Z}^{(l)}_k$\;
+
+  }
+  \end{algorithm}
+
+Algorithm~\ref{alg:update} describes an implementation of the above procedure. 
+We maintain a dictionary of the node indices with their row numbers in the buffer. 
+In every iteration, we first calculate the starting and ending address of chunk-($k\Mod{p}$). 
+Then, we look up every sampled node in the dictioinary. 
+If the node is in the dictionary, we obtain its address in the buffer (line 6), read in its current moving average from the address, and update the corresponding row of $\widetilde{Z}_k^{(l)}$ (line 7). 
+If the node is not found in the dictionary, we multipy the corresponding row of $\widetilde{Z}_k^{(l)}$ by $\beta_k$ (line 11). 
+Last, we multiply the buffer by $(1-\beta_k)$ and update chunk-($k\Mod{p}$) with the new value of $\widetilde{Z}_k^{(l)}$.  
+Because new values of nodes are always written to chunk-($k\Mod{p}$), there can be multiple rows in the buffer storing the moving average of the same node. 
+Only the most recently updated row is valid. 
+We use an array $node\_list$ to indicate the validity of the rows in the buffer. 
+When we find a sampled node in the buffer, we invalidate its original moving average by setting $node\_list[pos]$ to $-1$ (line 8). 
+When we overwrite a row in chunk-($k\Mod{p}$), we need to check the validity of its original value. 
+If the original value is valid, we will lose the moving average of the node stored in that row, and we need to remove the node from the $node\_dict$ (line 9). 
 
 
-When $k\ge p$, storing $\widetilde{Z}_k^{(l)}$ to chunk-$(k\Mod{p})$ overwrites the $\widetilde{Z}_{k-p}^{(l)}$ stored in iteration $k-p$. 
+The updating procedure in Algorithm~\ref{alg:update} can be written as 
+  \begin{equation}
+    \label{eq:sparse_update}
+    \begin{split}
+      y^{(l)}_{k+1} = &(1-\beta_{k})y^{(l)}_k + \beta_{k}  f^{(l)}_{\xi_{l,k}}(\theta_{k})\\
+               &-\prod_{j=k-p+1}^{k-1}(1-\beta_j)P(\xi_{l, {k-p}}/(\xi_{l,{k-p+1}}\cup\cdots \cup\xi_{l,k}))y^{(l)}_{k-p+1}
+    \end{split}
+  \end{equation}
+   where $P(\xi_{l, {k-p}}/(\xi_{l,{k-t+1}}\cup\cdots \cup\xi_{l,k}))$ is a projection matrix representing the nodes that are sampled in iteration $k-p$ and are not sampled in the following $p$ iterations. 
+  Since these nodes are simply multiplied by $(1-\beta_j)$ in every iteration after iteration $k-p$, the values in the rows that are overwritten are $\prod_{j=k-p+1}^{k-1}(1-\beta_j)P(\xi_{l, {k-p}}/(\xi_{l,{k-p+1}}\cup\cdots \cup\xi_{l,k}))y^{(l)}_{k-p+1}$. 
+
+By overwriting the data in the buffer, our algorithm uses a fixed buffer size, regardless of the graph size. 
+This allows us to employ the algorithm to train GNN on very large graphs.  
+The remaining problem is how the convergence property of the SCO algorithms is affected by the sparse moving averages of the aggregated features. 
+Following the convergence analysis of the single-timescale SCO algorithm in~\cite{balasubramanian2020stochastic}, we have the following theorem about the convergence rate of our algorithm. 
+
+\begin{theorem}
+  If we replace Formula (\ref{eq:alg_step1}) and (\ref{eq:alg_step2}) in the single-timescale SCO algorithm with Formula (\ref{eq:sparse_update}), 
+  with the same assumption ....
+  the algorithm converges at rate ....
+\end{theorem}
+
+
+
+
+
+
+
+
+
+
 
 
 

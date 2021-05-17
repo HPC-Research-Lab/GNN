@@ -30,10 +30,14 @@
 \usepackage{graphicx}
 \usepackage{wrapfig}
 \usepackage{xcolor}
+\usepackage[linesnumbered,ruled,vlined]{algorithm2e}
 
 
 
 
+\newcommand\mycommfont[1]{\footnotesize\ttfamily\textcolor{blue}{#1}}
+\SetCommentSty{mycommfont}
+\newcommand\textproc{\textsc}
 
 
 \newcommand*\circled[1]{\tikz[baseline=(char.base)]{
@@ -42,6 +46,10 @@
 \newcommand{\Mod}[1]{\ \mathrm{mod}\ #1}
 
 \newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}{Corollary}[theorem]
+\newtheorem{lemma}[theorem]{Lemma}
 
 \title{Accelerating Graph Neural Network Training with Sparse Moving Averages of Aggregated Features}
 
