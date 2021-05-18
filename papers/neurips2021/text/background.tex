@@ -27,8 +27,8 @@ Z^{(l)}=\mathrm{Agg}(H^{(l-1)}, X), \;\;\;\;\;\;
 H^{(l)} = \mathrm{Upd}(Z^{(l)}, X, W^{(l)}).
 \end{split}
 \end{equation}
-Here, $H^{(l-1)}=[h^{(l-1)}_1,\ldots, h^{(l)}_N]$ denotes the intermediate features of all nodes at layer $l$$-$$1$, $Z^{(l)}\in \mathbb{R}_{N\times d_l}$ is the aggregated features of all nodes at layer $l$, $X = [x_1,\ldots,x_N]$ is the input features of all nodes, and $ W^{(l)}$ is the learnable weights. 
-As an example, Graph Convolutional Network (GCN)~\cite{kipf2017semi} has $\mathrm{Agg}(H^{(l-1)}, X)=PH^{(l-1)}$ where $P$ is the normalized Laplacian matrix of the graph, and $\mathrm{Upd}(Z^{(l)},X,  W^{(l)})=\sigma(Z^{(l)} W^{(l)})$ where $\sigma$ is a non-linear activation function.   
+Here, $H^{(l-1)}=[h^{(l-1)}_1,\ldots, h^{(l)}_N]$ denotes the intermediate features of all nodes at layer $l$$-$$1$, $Z^{(l)}\in \mathbb{R}^{N\times d_l}$ is the aggregated features of all nodes at layer $l$, $X = [x_1,\ldots,x_N]$ is the input features of all nodes, and $ W^{(l)}$ is the learnable weights. 
+As an example, Graph Convolutional Network (GCN)~\cite{kipf2017semi} has $\mathrm{Agg}(H^{(l-1)}, X)=PH^{(l-1)}$ where $P$ is the normalized Laplacian matrix of the graph, and $\mathrm{Upd}(Z^{(l)}, X,  W^{(l)})=\sigma(Z^{(l)} W^{(l)})$ where $\sigma$ is a non-linear activation function.   
 Many other GNNs can be expressed in this form with different definitions of $\mathrm{Agg}$ and $\mathrm{Upd}$~\cite{zhou2018graph}. 
 
 
@@ -104,7 +104,7 @@ The key idea is to store an auxiliary variable $y^{(i)}$ to maintain the moving 
 Since $f^{(l)}_{\xi_l}$ returns the exact values of $W^{(l)}, ..., W^{(T)}$, we only need to maintain a moving average of $\widetilde{Z}^{(l)}$ for each layer\footnote{A more rigorious justification for this implementation can be found in the Supplmentary~\ref{}.}. 
 The computation is shown in Figure~\ref{fig:oom}. 
 The moving average of the aggregated features is stored in $\bar{Z}^{(l)}$ with each row for one node. 
-In each iteration, some nodes (rows) are sampled, and the estimate of the aggregation results $\widetilde{Z}^{(l)}$ are merged into $\bar{Z}^{(l)}$ based on Formula (\ref{eq:alg_step1}). 
+In each iteration, some nodes (rows) are sampled, and the estimated aggregation results $\widetilde{Z}^{(l)}$ are merged into $\bar{Z}^{(l)}$ based on Formula (\ref{eq:alg_step1}). 
 For the nodes that are not sampled, we simply multiply the corresponding rows of  $\bar{Z}^{(l)}$ by $(1-\beta_k)$. 
 Since the number of rows of $\bar{Z}^{(l)}$ is the number of nodes in the graph, $\bar{Z}^{(l)}$ takes a large chunk of memory when the graph is large. 
 For example, for training a 3-layer GCN on a graph with two million nodes, suppose the hidden state dimension $d_l=512$ and a floating point has 4 bytes, $\bar{Z}$ takes $3\times 2\text{M} \times 512 \times 4=12$GB of memory. 

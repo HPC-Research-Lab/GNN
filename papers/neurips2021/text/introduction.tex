@@ -12,10 +12,10 @@ However,
 due to the composition of the aggregation functions in multiple layers, 
 the stochastic gradient obtained with sampled neighbor aggregation is not an unbiased estimate of the true gradient, which undermines the convergence property of SGD-based training algorithms. 
 
-Previous work has shown that sampling-based GNN training is actually a Stochastic Compositional Optimization (SCO) problem~\cite{cong2020minimal, jiang2021communicationefficient, cong2021importance}. 
+Previous work has shown that sampling-based GNN training is actually a Stochastic Compositional Optimization (SCO) problem~\cite{cong2020minimal,  cong2021importance}. 
 Cong {\em et al.}~\cite{cong2021importance} show that SCO algorithms can achieve faster convergence than the commonly used Adam SGD for GNN training on small graphs (with less than one million nodes). 
 However, these SCO algorithms are impractical for training GNN on large graphs due to the large memory consumption. 
-Despite the different forms of SCO algorithms, they all need to maintain a moving average of the estimation result of the composite functions~\cite{yang2019multilevel, balasubramanian2020stochastic, chen2020solving, lian2017finite, wang2017accelerating, ghadimi2020single}. 
+Despite the different forms of SCO algorithms, they all need to maintain the moving averages of the estimation of the composite functions~\cite{yang2019multilevel, balasubramanian2020stochastic, chen2020solving, lian2017finite, wang2017accelerating, ghadimi2020single}. 
 For GNN training, they need to store the moving averages of the aggregation results of all nodes in the graph. 
 The larger the graphs, the more space these moving averages take. 
 Since the GPU has limited memory, these SCO algorithms can easily run out of memory for large-scale GNN training, even with aggressive neighbor sampling. 
