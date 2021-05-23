@@ -229,9 +229,6 @@ if __name__ == "__main__":
 
     barrier = threading.Barrier(world_size)
 
-    load_mag240_lsc(os.environ['GNN_DATA_DIR'])
-    sys.exit(-1)
-
     if 'ogbn' in args.dataset:
         graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
     else:

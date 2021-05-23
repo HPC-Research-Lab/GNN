@@ -48,20 +48,6 @@ def load_graphsaint_data(graph_name, root_dir):
 
     return (adj_full, class_arr, torch.FloatTensor(feats), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
-def load_mag240_lsc(root_dir):
-    from ogb.lsc import MAG240MDataset
-    print(root_dir)
-    dataset = MAG240MDataset(root = root_dir)
-
-    row, col = dataset.edge_index()
-    row, col = torch.cat([row, col], dim=0), torch.cat([col, row], dim=0)
-    num_vertices = dataset.num_papers + dataset.num_authors + dataset.num_institutions
-    print(num_vertices)
-
-    adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices), dtype=np.float32)
-    row = None
-    col = None
-
 
 def load_ogbn_data(graph_name, root_dir):
     dataset = PygNodePropPredDataset(graph_name, root=root_dir)
@@ -100,6 +86,9 @@ def load_ogbn_data(graph_name, root_dir):
 
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
+
+
+    np.savetxt('tmp.output', sp.linalg.norm(adj_full, ord=0, axis=0))
     
     return (adj_full, class_arr, feats, num_classes, train_idx, valid_idx, test_idx)
 
