@@ -93,11 +93,8 @@ class GraphConvolution(nn.Module):
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, feat)
                 feat = 0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
+                self.y[self.idx] *= 0.9 
                 self.y[self.idx][nodes_per_layer] = feat.detach()
-                index = torch.ones(self.y[0].shape[0], dtype=bool)
-                index[nodes_per_layer] = False
-                self.y[self.idx][index] *= 0.9 
-
 
             out = F.elu(self.linear(feat))
             mean = out.mean(dim=1).view(out.shape[0],1)
