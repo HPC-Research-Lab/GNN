@@ -30,10 +30,8 @@ class GraphSageConvolution(nn.Module):
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
                 feat =  0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
+                self.y[self.idx] *= 0.9 
                 self.y[self.idx][nodes_per_layer] = feat.detach()
-                index = torch.ones(self.y[0].shape[0], dtype=bool)
-                index[nodes_per_layer] = False
-                self.y[self.idx][index] *= 0.9 
 
                 feat = torch.cat([self.linearB(x[sampled_nodes]), self.linearW(feat)], 1)
             else:
