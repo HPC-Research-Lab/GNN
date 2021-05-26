@@ -25,12 +25,18 @@ class GraphSageConvolution(nn.Module):
             self.y = y
             self.idx = idx
             self.p = p
+            self.beta = 0.9
     def forward(self, x, adj, sampled_nodes, nodes_per_layer, normfact_row, iterations):
         if self.sco == True and self.training == True:
+            if iterations == 5000:
+                self.beta = 0.95
+            if iterations == 10000:
+                self.beta = 0.99
+                
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
-                feat =  0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
-                self.y[self.idx] *= 0.9 
+                feat =  self.beta * self.y[self.idx][nodes_per_layer] + feat - self.beta * feat.detach()
+                self.y[self.idx] *= self.beta
                 self.y[self.idx][nodes_per_layer] = feat.detach()
 
                 feat = torch.cat([self.linearB(x[sampled_nodes]), self.linearW(feat)], 1)
@@ -86,14 +92,20 @@ class GraphConvolution(nn.Module):
             self.y = y
             self.idx = idx
             self.p = p
+            self.beta = 0.9
+
 
     def forward(self, x, adj, sampled_nodes, nodes_per_layer, iterations):
         if (self.training == True and self.sco == True):
             feat = x
             if self.order > 0:
+                if iterations == 5000:
+                    self.beta = 0.95
+                if iterations == 10000:
+                    self.beta = 0.99
                 feat = custom_sparse_ops.spmm(adj, feat)
-                feat = 0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
-                self.y[self.idx] *= 0.9 
+                feat = self.beta * self.y[self.idx][nodes_per_layer] + feat - self.beta * feat.detach()
+                self.y[self.idx] *= self.beta 
                 self.y[self.idx][nodes_per_layer] = feat.detach()
 
             out = F.elu(self.linear(feat))
