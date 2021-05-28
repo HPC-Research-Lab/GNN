@@ -11,7 +11,7 @@ trans_time = 0.0
 #y = [torch.zeros((total_nodes,nhid)).to(device),torch.zeros((total_nodes,nhid)).to(device),torch.zeros((total_nodes,nhid)).to(device)]
 
 class GraphSageConvolution(nn.Module):
-    def __init__(self, n_in, n_out, order, idx, y=None, p=0, sco=False):
+    def __init__(self, n_in, n_out, order, idx, y=None, p=0, sco=False, mov_idx=None):
         super(GraphSageConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
@@ -25,13 +25,18 @@ class GraphSageConvolution(nn.Module):
             self.y = y
             self.idx = idx
             self.p = p
+            self.beta = 0.9
+            self.mov_idx = mov_idx
     def forward(self, x, adj, sampled_nodes, nodes_per_layer, normfact_row, iterations):
         if self.sco == True and self.training == True:
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
-                feat =  0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
-                self.y[self.idx] *= 0.9 
+                #beta_vector = torch.Tensor(list(map(lambda x:self.beta**(iterations-i+1), self.mov_idx[self.idx][nodes_per_layer]))).reshape((len(nodes_per_layer),1)).cuda()
+                #beta_vector = torch.Tensor([self.beta**(iterations-i+1) for i in self.mov_idx[self.idx][nodes_per_layer]]).reshape((len(nodes_per_layer),1)).cuda()
+                feat = self.beta * self.y[self.idx][nodes_per_layer] + feat - self.beta * feat.detach()
+                self.y[self.idx] *= self.beta 
                 self.y[self.idx][nodes_per_layer] = feat.detach()
+                self.mov_idx[self.idx][nodes_per_layer] = iterations
 
                 feat = torch.cat([self.linearB(x[sampled_nodes]), self.linearW(feat)], 1)
             else:
@@ -52,15 +57,15 @@ class GraphSageConvolution(nn.Module):
             return (out - mean) * self.scale * torch.rsqrt(var) + self.offset 
 
 class GraphSage(nn.Module):
-    def __init__(self, nfeat, nhid, orders, dropout, y=None, p=0, iteration=0, sco=False):
+    def __init__(self, nfeat, nhid, orders, dropout, y=None, p=0, iteration=0, sco=False, mov_idx=None):
         super(GraphSage, self).__init__()
         layers = len(orders)
         self.nhid = (1 + orders[-1]) * nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphSageConvolution(nfeat,  nhid, orders[0], 0, y=y, p=p, sco=sco))
+        self.gcs.append(GraphSageConvolution(nfeat,  nhid, orders[0], 0, y=y, p=p, sco=sco, mov_idx=mov_idx))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphSageConvolution((1+orders[i])*nhid,  nhid, orders[i+1], i+1, y=y, p=p, sco=sco))
+            self.gcs.append(GraphSageConvolution((1+orders[i])*nhid,  nhid, orders[i+1], i+1, y=y, p=p, sco=sco, mov_idx=mov_idx))
     def forward(self, x, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iterations):
         '''
             The difference here with the original GCN implementation is that
@@ -73,7 +78,7 @@ class GraphSage(nn.Module):
 
 
 class GraphConvolution(nn.Module):
-    def __init__(self, n_in, n_out, order, y=None, idx=-1, p=0, sco=False):
+    def __init__(self, n_in, n_out, order, y=None, idx=-1, p=0, sco=False, mov_idx=None):
         super(GraphConvolution, self).__init__()
         self.n_in  = n_in
         self.n_out = n_out
@@ -86,15 +91,27 @@ class GraphConvolution(nn.Module):
             self.y = y
             self.idx = idx
             self.p = p
-
+            self.mov_idx = mov_idx
+            self.beta = 0.9
+    
     def forward(self, x, adj, sampled_nodes, nodes_per_layer, iterations):
         if (self.training == True and self.sco == True):
             feat = x
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, feat)
-                feat = 0.9 * self.y[self.idx][nodes_per_layer] + feat - 0.9 * feat.detach()
-                self.y[self.idx] *= 0.9 
+
+                #beta_vector = torch.Tensor(list(map(lambda x:self.beta**(iterations - x + 1), self.mov_idx[self.idx][nodes_per_layer]))).reshape((len(nodes_per_layer),1)).cuda()
+                
+                #beta_vector = torch.Tensor([self.beta**(iterations - i + 1) for i in self.mov_idx[self.idx][nodes_per_layer]]).reshape((len(nodes_per_layer),1)).cuda()
+                
+                beta_vector = torch.zeros((len(nodes_per_layer),1)).cuda()
+                for i in self.mov_idx[self.idx][nodes_per_layer]:
+                    beta_vector = self.beta ** (iterations - i + 1)
+
+                feat = beta_vector * self.y[self.idx][nodes_per_layer] + feat - self.beta * feat.detach()
+                #self.y[self.idx] *= self.beta
                 self.y[self.idx][nodes_per_layer] = feat.detach()
+                self.mov_idx[self.idx][nodes_per_layer] = iterations
 
             out = F.elu(self.linear(feat))
             mean = out.mean(dim=1).view(out.shape[0],1)
@@ -111,15 +128,15 @@ class GraphConvolution(nn.Module):
 
 
 class GCN(nn.Module):
-    def __init__(self, nfeat, nhid, orders, dropout, y=None, p=0, iteration=0, sco=False):
+    def __init__(self, nfeat, nhid, orders, dropout, y=None, p=0, iteration=0, sco=False, mov_idx=None):
         super(GCN, self).__init__()
         layers = len(orders)
         self.nhid = nhid
         self.gcs = nn.ModuleList()
-        self.gcs.append(GraphConvolution(nfeat, nhid, orders[0], y=y, idx=0, p=p, sco=sco))
+        self.gcs.append(GraphConvolution(nfeat, nhid, orders[0], y=y, idx=0, p=p, sco=sco, mov_idx=mov_idx))
         self.dropout = nn.Dropout(dropout)
         for i in range(layers-1):
-            self.gcs.append(GraphConvolution(nhid, nhid, orders[i+1], y=y, idx=i+1, p=p, sco=sco))
+            self.gcs.append(GraphConvolution(nhid, nhid, orders[i+1], y=y, idx=i+1, p=p, sco=sco, mov_idx=mov_idx))
     def forward(self, x, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iterations):
         '''
             The difference here with the original GCN implementation is that

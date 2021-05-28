@@ -86,26 +86,34 @@ def train(rank, devices, world_size):
     if args.model == 'graphsage':
         for oiter in range(1):
             y = []
+            mov_idx = []
             if orders[0] > 0:
                 y.append(torch.zeros(lap_matrix.shape[0], feat_data.shape[1]).to(device))
+                mov_idx.append(np.zeros((lap_matrix.shape[0],), dtype=np.int))
             for i in range(1, len(orders)):
                 if orders[i] > 0:
                     y.append(torch.zeros(lap_matrix.shape[0], (1+orders[i])*args.nhid).to(device))
+                    mov_idx.append(np.zeros((lap_matrix.shape[0],), dtype=np.int))
                 else:
                     y.append(None)
-        encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco).to(device)
+                    mov_idx.append(None)
+        encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco, mov_idx=mov_idx).to(device)
 
     elif args.model == 'gcn':
         for oiter in range(1):
             y = []
+            mov_idx = []
             if orders[0] > 0:
                 y.append(torch.zeros(lap_matrix.shape[0], feat_data.shape[1]).to(device))
+                mov_idx.append(np.zeros((lap_matrix.shape[0],), dtype=np.int))
             for i in range(1, len(orders)):
                 if orders[i] > 0:
                     y.append(torch.zeros(lap_matrix.shape[0], args.nhid).to(device))
+                    mov_idx.append(np.zeros((lap_matrix.shape[0],), dtype=np.int))
                 else:
                     y.append(None)
-        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco).to(device)
+                    mov_idx.append(None)
+        encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1, y=y, p=args.p, sco=args.sco, mov_idx=mov_idx).to(device)
 
     susage  = GNN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
     susage.to(device) 
