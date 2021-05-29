@@ -137,18 +137,27 @@ def train(rank, devices, world_size):
 
             torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
+  
             if world_size > 1:
-                grad = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(susage.parameters()) if param.grad != None), 0)
-                gradients[rank] = grad
-                barrier.wait()
-                grad = sum([g if g.device == device else g.to(device) for g in gradients])
-            
-                start = 0
-                for param in susage.parameters():
-                    if param.grad != None:
-                        param.grad.data = grad[start:start+param.grad.data.numel()].view(param.grad.data.size())
-                        start += param.grad.data.numel()
-            
+                torch.cuda.synchronize(device)
+                t2 = time.clock_gettime(clk)
+                
+                s = torch.cuda.Stream()
+                with torch.cuda.stream(s):
+
+                    grad = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(susage.parameters()) if param.grad != None), 0)
+                    gradients[rank] = grad
+                    barrier.wait()
+                    grad = sum([g if g.device == device else g.to(device) for g in gradients])
+                
+                    start = 0
+                    for param in susage.parameters():
+                        if param.grad != None:
+                            param.grad.data = grad[start:start+param.grad.data.numel()].view(param.grad.data.size())
+                            start += param.grad.data.numel()
+                
+                torch.cuda.synchronize(device)
+                communication_time += time.clock_gettime(clk) - t2
 
             #if world_size > 1:
             #    average_grad(models, rank, world_size)
