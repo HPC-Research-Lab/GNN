@@ -8,8 +8,6 @@ from torch_geometric.utils import to_undirected, dropout_adj
 import multiprocessing as mp
 import pickle
 import matplotlib
-import metis
-
 
 
 
@@ -17,7 +15,6 @@ def load_graphsaint_data(graph_name, root_dir):
     # adj_full: graph edges stored in coo format, role: dict storing indices of train, val, test nodes
     # feats: features of all nodes, class_map: label of all nodes
     adj_full = sp.load_npz(f'{root_dir}/{graph_name}/adj_full.npz').astype(np.float32)
-    adj_train = sp.load_npz(f'{root_dir}/{graph_name}/adj_train.npz').astype(np.bool)
     role = json.load(open(f'{root_dir}/{graph_name}/role.json'))
     feats = np.load(f'{root_dir}/{graph_name}/feats.npy').astype(np.float32)
     class_map = json.load(open(f'{root_dir}/{graph_name}/class_map.json'))
@@ -29,9 +26,6 @@ def load_graphsaint_data(graph_name, root_dir):
     scaler = StandardScaler()
     scaler.fit(train_feats)
     feats = scaler.transform(feats)
-
-    # reorder graph
-    adj_full, feats, class_map, role = reorder_graphsaint_graph(adj_full, feats, class_map, role)
 
     num_vertices = adj_full.shape[0]
     if isinstance(list(class_map.values())[0], list):
@@ -51,9 +45,8 @@ def load_graphsaint_data(graph_name, root_dir):
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
     
-    
-    return (adj_full, class_arr, torch.FloatTensor(feats), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
+    return (adj_full, class_arr, torch.FloatTensor(feats), num_classes, np.array(train_nodes), np.array(role['va']), np.array(role['te']))
 
 
 def load_ogbn_data(graph_name, root_dir):
@@ -76,9 +69,6 @@ def load_ogbn_data(graph_name, root_dir):
     class_data = data.y.data.flatten()
     assert(len(class_data) == num_vertices)
 
-    # reorder graph
-    adj_full, feats, class_data, train_idx, valid_idx, test_idx = reorder_ogbn_graph(adj_full, feats, class_data, train_idx, valid_idx, test_idx)
-
     class_data_compact = class_data[~torch.isnan(class_data)]
 
     max_class_idx = torch.max(class_data_compact)
@@ -91,33 +81,40 @@ def load_ogbn_data(graph_name, root_dir):
     for i in range(len(class_data)):
         if not torch.isnan(class_data[i]): 
             class_arr[i, class_data[i]-min_class_idx] = 1
+    
     class_arr = class_arr.tocsr()
 
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
+
+
+    np.savetxt('tmp.output', sp.linalg.norm(adj_full, ord=0, axis=0))
     
     return (adj_full, class_arr, feats, num_classes, train_idx, valid_idx, test_idx)
 
     
-def reorder_graphsaint_graph(adj_full, feats, class_map, role):
-    pv_list = [
-            adj_full.data[
-                adj_full.indptr[v] : adj_full.indptr[v + 1]
-            ]
-            for v in range(adj_full.shape[0])
-        ]
+def reorder_graphsaint_graph(adj_full, adj_train, feats, class_map, role):
+    pv_list = np.array(
+        [
+            adj_train.data[
+                adj_train.indptr[v] : adj_train.indptr[v + 1]
+            ].sum()
+            for v in range(adj_train.shape[0])
+        ],
+        dtype=np.int64,
+    )
+    rate_nodes = sorted(range(len(pv_list)), key=lambda k: pv_list[k], reverse=True)
 
-    (edgecuts, parts) = metis.part_graph(pv_list, 4)
-    #print(parts)
-    rate_nodes = sorted(range(len(pv_list)), key=lambda k: parts[k], reverse=True)
-
-    rate_nodes_dict = [0] * adj_full.shape[0] 
+    rate_nodes_dict = {}
     for i in range(len(rate_nodes)):
         rate_nodes_dict[rate_nodes[i]] = i
 
     adj_full_indices = []
     adj_full_indptr = []
+    adj_train_indices = []
+    adj_train_indptr = []
     adj_full_indptr.append(0)
+    adj_train_indptr.append(0)
     index_full = 0
     index_train = 0
     for v in rate_nodes:
@@ -125,16 +122,25 @@ def reorder_graphsaint_graph(adj_full, feats, class_map, role):
         v_e_full = adj_full.indptr[v + 1]
         for col in adj_full.indices[v_s_full:v_e_full]:
             adj_full_indices.append(rate_nodes_dict[col])
+        data_col = adj_full_indices[v_s_full:v_e_full]
         index_full += v_e_full - v_s_full
         adj_full_indptr.append(index_full)
 
+        v_s_train = adj_train.indptr[v]
+        v_e_train = adj_train.indptr[v + 1]
+        for col in adj_train.indices[v_s_train:v_e_train]:
+            adj_train_indices.append(rate_nodes_dict[col])        
+        index_train += v_e_train - v_s_train
+        adj_train_indptr.append(index_train)     
     adj_full.indices = np.array(adj_full_indices, dtype=np.int32)
     adj_full.indptr = np.array(adj_full_indptr, dtype=np.int32)
+    adj_train.indices = np.array(adj_train_indices, dtype=np.int32)
+    adj_train.indptr = np.array(adj_train_indptr, dtype=np.int32)
     
     feats_reorder = feats[rate_nodes]
     class_map_reorder = {}
     role_reorder = {}
-    for i in range(adj_full.shape[0]):
+    for i in range(adj_train.shape[0]):
         class_map_reorder[i] = class_map[rate_nodes[i]]
     role_reorder['tr'] = []
     role_reorder['va'] = []
@@ -146,22 +152,22 @@ def reorder_graphsaint_graph(adj_full, feats, class_map, role):
     for i in role['te']:
         role_reorder['te'].append(rate_nodes_dict[i])
 
-    return adj_full, feats_reorder, class_map_reorder, role_reorder
+    return adj_full, adj_train, feats_reorder, class_map_reorder, role_reorder
 
 
 def reorder_ogbn_graph(adj_full, feats, class_data, train_idx, valid_idx, test_idx):
-    pv_list = [
+    pv_list = np.array(
+        [
             adj_full.data[
                 adj_full.indptr[v] : adj_full.indptr[v + 1]
-            ]
+            ].sum()
             for v in range(adj_full.shape[0])
-        ]
+        ],
+        dtype=np.int64,
+    )
 
-    (edgecuts, parts) = metis.part_graph(pv_list, 4)
-    #print(parts)
-    rate_nodes = sorted(range(len(pv_list)), key=lambda k: parts[k], reverse=True)
-    rate_nodes_dict = [0] * adj_full.shape[0] 
-
+    rate_nodes = sorted(range(len(pv_list)), key=lambda k: pv_list[k], reverse=True)
+    rate_nodes_dict = {}
     for i in range(len(rate_nodes)):
         rate_nodes_dict[rate_nodes[i]] = i
 
@@ -199,48 +205,6 @@ def reorder_ogbn_graph(adj_full, feats, class_data, train_idx, valid_idx, test_i
     test_idx_reorder = torch.tensor(test_idx_reorder)
 
     return adj_full, feats_reorder, class_data_reorder, train_idx_reorder, valid_idx_reorder, test_idx_reorder
-
-def partition_graph(graph_data, devices):
-
-    _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
-
-    N = feat_data.shape[0]
-    n = N // len(devices)
-    if N % len(devices): 
-        n += 1
-
-    device_id_of_nodes_group = []
-
-    device_id_of_nodes = np.array([-1] * N)
-    idx_of_nodes_on_device = np.array([-1] * N)
-
-    gpu_buffer_group = []
-
-
-
-    for i in range(len(devices)):
-        start = i * n
-        end = N if (i+1) * n > N else (i+1) * n 
-        device_id_of_nodes[start: end] = devices[i]
-        idx_of_nodes_on_device[start: end] = np.arange(end-start)
-        gpu_buffer_group.append(np.arange(start, end))
-    
-
-    for i in range(len(devices)):
-        device_id_of_nodes_group.append(device_id_of_nodes.copy())
-
-
-    idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * len(devices)
-    print(gpu_buffer_group)
-
-
-    gpu_buffers = []
-    for i in range(len(devices)):
-        gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
-
-    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
-
-
 
 def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1):
     

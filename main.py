@@ -51,7 +51,6 @@ parser.add_argument('--buffer_size', type=int, default=250000,
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
 parser.add_argument('--test', action='store_true')
-parser.add_argument('--graph_part', action='store_true')
 parser.add_argument('--alpha', type=float, default=1.0)
 parser.add_argument('--sampler', type=str, default='ladies')
 
@@ -251,10 +250,7 @@ if __name__ == "__main__":
 
     _, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
-    if not args.graph_part:
-        device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha)
-    else:
-        device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = partition_graph(graph_data, devices)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha)
 
     threads = []
 
