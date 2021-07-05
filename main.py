@@ -50,6 +50,8 @@ parser.add_argument('--buffer_size', type=int, default=250000,
                     help='Number of buffered nodes on GPU')
 parser.add_argument('--scale_factor', type=float, default=1,
                     help='Scale factor for skewed sampling')
+parser.add_argument('--lr', type=float, default=0.01,
+                    help='Learning rate')
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--alpha', type=float, default=1.0)
 parser.add_argument('--sampler', type=str, default='ladies')
@@ -60,7 +62,7 @@ args = parser.parse_args()
 
 def train(rank, devices, world_size):
 
-    global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, barrier
+    global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, state_exp_avg, state_exp_avg_sq, barrier
 
     print(f"Rank {rank + 1}/{world_size} thread initialized.", flush=True)
 
@@ -92,7 +94,7 @@ def train(rank, devices, world_size):
     clk = time.CLOCK_THREAD_CPUTIME_ID
 
 
-    optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=0.01)
+    optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=args.lr)
     best_val = -1
     execution_time = 0.0
     data_movement_time = 0.0
@@ -137,6 +139,9 @@ def train(rank, devices, world_size):
 
             torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
+
+            #print(optimizer.state_dict()['state'])
+
   
             if world_size > 1:
                 torch.cuda.synchronize(device)
@@ -148,20 +153,45 @@ def train(rank, devices, world_size):
                     grad = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(susage.parameters()) if param.grad != None), 0)
                     gradients[rank] = grad
                     barrier.wait()
-                    grad = sum([g if g.device == device else g.to(device) for g in gradients])
+                    grad = sum([g if g.device == device else g.to(device) for g in gradients]) / world_size
                 
                     start = 0
                     for param in susage.parameters():
                         if param.grad != None:
                             param.grad.data = grad[start:start+param.grad.data.numel()].view(param.grad.data.size())
                             start += param.grad.data.numel()
+
+                    exp_avg = tuple(v['exp_avg'].view(v['exp_avg'].numel()) for v in optimizer.state_dict()['state'].values())
+                    if len(exp_avg) > 0:
+                        exp_avg = torch.cat(exp_avg, 0)
+
+                        state_exp_avg[rank] = exp_avg
+                        barrier.wait()
+                        exp_avg = sum([g if g.device == device else g.to(device) for g in state_exp_avg]) / world_size
+                    
+                        start = 0
+                        for v in optimizer.state_dict()['state'].values():
+                            v['exp_avg'] = exp_avg[start:start+v['exp_avg'].numel()].view(v['exp_avg'].size())
+                            start += v['exp_avg'].numel()
+
+                    exp_avg_sq = tuple(v['exp_avg_sq'].view(v['exp_avg_sq'].numel()) for v in optimizer.state_dict()['state'].values())
+                    if len(exp_avg_sq) > 0:
+                        exp_avg_sq = torch.cat(exp_avg_sq, 0)
+
+                        state_exp_avg_sq[rank] = exp_avg_sq
+                        barrier.wait()
+                        exp_avg_sq = sum([g if g.device == device else g.to(device) for g in state_exp_avg_sq]) / world_size
+                    
+                        start = 0
+                        for v in optimizer.state_dict()['state'].values():
+                            v['exp_avg_sq'] = exp_avg_sq[start:start+v['exp_avg_sq'].numel()].view(v['exp_avg_sq'].size())
+                            start += v['exp_avg_sq'].numel()
+                        
+
                 
                 torch.cuda.synchronize(device)
                 communication_time += time.clock_gettime(clk) - t2
 
-            #if world_size > 1:
-            #    average_grad(models, rank, world_size)
-            
             optimizer.step()
 
             torch.cuda.synchronize(device)
@@ -192,8 +222,6 @@ def train(rank, devices, world_size):
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
                     torch.save(susage, './save/best_model.pt')
-                
-                
 
     if args.test == True and rank == 0:
         best_model = torch.load('./save/best_model.pt')
@@ -235,6 +263,10 @@ if __name__ == "__main__":
     orders = [int(t) for t in orders] 
 
     gradients = [None] * world_size
+
+    state_exp_avg = [None] * world_size
+
+    state_exp_avg_sq = [None] * world_size
 
     barrier = threading.Barrier(world_size)
 
