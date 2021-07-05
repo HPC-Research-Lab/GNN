@@ -153,7 +153,7 @@ def train(rank, devices, world_size):
                     grad = torch.cat(tuple((param.grad.data).view(param.grad.data.numel()) for i, param in enumerate(susage.parameters()) if param.grad != None), 0)
                     gradients[rank] = grad
                     barrier.wait()
-                    grad = sum([g if g.device == device else g.to(device) for g in gradients]) / world_size
+                    grad = sum([g if g.device == device else g.to(device) for g in gradients])
                 
                     start = 0
                     for param in susage.parameters():
@@ -161,34 +161,6 @@ def train(rank, devices, world_size):
                             param.grad.data = grad[start:start+param.grad.data.numel()].view(param.grad.data.size())
                             start += param.grad.data.numel()
 
-                    exp_avg = tuple(v['exp_avg'].view(v['exp_avg'].numel()) for v in optimizer.state_dict()['state'].values())
-                    if len(exp_avg) > 0:
-                        exp_avg = torch.cat(exp_avg, 0)
-
-                        state_exp_avg[rank] = exp_avg
-                        barrier.wait()
-                        exp_avg = sum([g if g.device == device else g.to(device) for g in state_exp_avg]) / world_size
-                    
-                        start = 0
-                        for v in optimizer.state_dict()['state'].values():
-                            v['exp_avg'] = exp_avg[start:start+v['exp_avg'].numel()].view(v['exp_avg'].size())
-                            start += v['exp_avg'].numel()
-
-                    exp_avg_sq = tuple(v['exp_avg_sq'].view(v['exp_avg_sq'].numel()) for v in optimizer.state_dict()['state'].values())
-                    if len(exp_avg_sq) > 0:
-                        exp_avg_sq = torch.cat(exp_avg_sq, 0)
-
-                        state_exp_avg_sq[rank] = exp_avg_sq
-                        barrier.wait()
-                        exp_avg_sq = sum([g if g.device == device else g.to(device) for g in state_exp_avg_sq]) / world_size
-                    
-                        start = 0
-                        for v in optimizer.state_dict()['state'].values():
-                            v['exp_avg_sq'] = exp_avg_sq[start:start+v['exp_avg_sq'].numel()].view(v['exp_avg_sq'].size())
-                            start += v['exp_avg_sq'].numel()
-                        
-
-                
                 torch.cuda.synchronize(device)
                 communication_time += time.clock_gettime(clk) - t2
 
