@@ -272,7 +272,28 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
 
     print(gpu_buffer_group)
 
-    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers
+    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group
+
+
+def get_neighbors(adj_matrix, nodes):
+    return np.where((np.ones(len(nodes)) * adj_matrix[nodes, :]) != 0)[0]
+
+
+def get_skewed_sampled_nodes(adj_matrix, gpu_buffers_group, orders):
+    sampled_nodes_group = [[None for j in range(len(orders))] for i in range(len(gpu_buffers_group))]
+
+    for i in range(len(gpu_buffers_group)):
+        cur_nodes = gpu_buffers_group[i]
+        sampled_nodes_group[i][0] = cur_nodes
+        for j in range(1, len(orders)):
+            cur_nodes = get_neighbors(adj_matrix, cur_nodes)
+            #cur_nodes = np.unique(np.concatenate((get_neighbors(adj_matrix, cur_nodes), cur_nodes)))
+            sampled_nodes_group[i][j] = cur_nodes
+
+        #print(sampled_nodes_group[i])
+    
+    return sampled_nodes_group
+    
 
 
 def create_shared_input_object(lap_matrix, graph_data):

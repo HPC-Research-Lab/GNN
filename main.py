@@ -45,15 +45,15 @@ parser.add_argument('--samp_num', type=int, default=8192,
 parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
-parser.add_argument('--global_permutation', type=bool, default=True)
+parser.add_argument('--local_shuffle', action='store_true')
 parser.add_argument('--buffer_size', type=int, default=250000,
                     help='Number of buffered nodes on GPU')
-parser.add_argument('--scale_factor', type=float, default=1,
+parser.add_argument('--scale_factor', type=str, default='',
                     help='Scale factor for skewed sampling')
 parser.add_argument('--lr', type=float, default=0.01,
                     help='Learning rate')
 parser.add_argument('--test', action='store_true')
-parser.add_argument('--alpha', type=float, default=1.0)
+parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--sampler', type=str, default='ladies')
 
 
@@ -62,7 +62,7 @@ args = parser.parse_args()
 
 def train(rank, devices, world_size):
 
-    global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, state_exp_avg, state_exp_avg_sq, barrier
+    global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, barrier, sample_nodes_group, orders, scale_factor
 
     print(f"Rank {rank + 1}/{world_size} thread initialized.", flush=True)
 
@@ -73,7 +73,7 @@ def train(rank, devices, world_size):
         
     device_id_of_nodes = device_id_of_nodes_group[rank]
     idx_of_nodes_on_device = idx_of_nodes_on_device_group[rank]
-    
+
     samp_num_list = np.array([args.samp_num, args.samp_num, args.samp_num, args.samp_num, args.samp_num])
 
     if args.sampler == 'subgraph':
@@ -106,7 +106,7 @@ def train(rank, devices, world_size):
         susage.train()
         train_losses = []
 
-        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  args.scale_factor, args.global_permutation, 'train')
+        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices,  scale_factor, args.local_shuffle, 'train')
 
 
         for fut in as_completed(train_data):
@@ -175,7 +175,7 @@ def train(rank, devices, world_size):
     
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices,  mode='val')
 
             for fut in as_completed(val_data):    
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
@@ -200,7 +200,7 @@ def train(rank, devices, world_size):
         best_model.eval()
         best_model.cpu()
 
-        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, mode='test')
 
         correct = 0.0
         total = 0.0
@@ -234,11 +234,11 @@ if __name__ == "__main__":
     orders = args.orders.split(',')
     orders = [int(t) for t in orders] 
 
+
+    scale_factor = args.scale_factor.split(',')
+    scale_factor = [int(t) for t in scale_factor if t !='']
+
     gradients = [None] * world_size
-
-    state_exp_avg = [None] * world_size
-
-    state_exp_avg_sq = [None] * world_size
 
     barrier = threading.Barrier(world_size)
 
@@ -254,7 +254,10 @@ if __name__ == "__main__":
 
     _, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha)
+
+    sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
+
 
     threads = []
 
