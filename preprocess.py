@@ -214,7 +214,7 @@ def get_order_neighbors(lap_matrix, nodes, num_conv_layers):
         #cur_nodes = list(neighbors)
     return cur_nodes
 
-def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev, nblocks=100):
+def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev, nblocks=20):
     device_id_of_nodes_group = []
     idx_of_nodes_on_device_group = []
     gpu_buffer_group = [-1] * num_devs
