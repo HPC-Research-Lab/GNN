@@ -221,6 +221,7 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
     nodes_set_list = [] # In Algorithm1: The temple nodes set on each gpu
     PV = [1] * num_devs # In Algorithm1: The number of nodes including repeated nodes on gpu
     score =[0] * num_devs # In Algorithm1: The score of each gpu
+    train_nodes_set = []
 
     # Initialize 
     #nodes_set = set()
@@ -232,16 +233,20 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
 
     # Algorithm1: Allocate nodes and their neighbors to different gpu
     for i in range(num_devs):
-        nodes_set = get_order_neighbors(lap_matrix, train_nodes[i*block_size: (i+1)*block_size], num_conv_layers)
+        batch_nodes = train_nodes[i*block_size: (i+1)*block_size]
+        nodes_set = get_order_neighbors(lap_matrix, batch_nodes, num_conv_layers)
         PV[i] += len(nodes_set)
         nodes_set_list.append(nodes_set)
+        train_nodes_set.append(batch_nodes)
     for j in range(num_devs * block_size, len(train_nodes), block_size):
-        nodes_set = get_order_neighbors(lap_matrix, train_nodes[j: min(j+block_size, len(train_nodes))], num_conv_layers)
+        batch_nodes = train_nodes[j: min(j+block_size, len(train_nodes))]
+        nodes_set = get_order_neighbors(lap_matrix, batch_nodes, num_conv_layers)
         for i in range(num_devs):
             score[i] = len(np.intersect1d(nodes_set_list[i], nodes_set, assume_unique=True)) * (lap_matrix.shape[0] - len(nodes_set_list[i])) / PV[i]
         max_score_device = score.index(max(score, key=abs))
         PV[max_score_device] += len(nodes_set)
         nodes_set_list[max_score_device] = np.unique(np.concatenate((nodes_set_list[max_score_device], nodes_set)))
+        train_nodes_set[max_score_device] = np.concatenate((train_nodes_set[max_score_device], batch_nodes))
 
     # Save the top buffer_size nodes on each gpu
     for i in range(num_devs):
@@ -249,7 +254,7 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
         device_id_of_nodes_group[i][gpu_buffer_group[i][:]] = devices[i]
         idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
     
-    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group
+    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set
 
 def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1, pagraph_partition=False):
     
@@ -258,6 +263,9 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
     num_devs = len(devices)
 
     fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).({pagraph_partition}).buf'
+
+    train_nodes_set = None
+
 
     if not os.path.exists(fname):
         sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
@@ -270,8 +278,11 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
         idx_of_nodes_on_device_group = []
         device_id_of_nodes_group = []
 
+
         if pagraph_partition == True:
-            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev)
+            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev)
+
+            pickle.dump([device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set], open(fname, 'wb'))
         else:
             idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
             for i in range(num_devs):
@@ -310,17 +321,20 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
             pickle.dump([change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
     
     else:
-        change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
-    
-    #print(p_accum)
-    #print("change_num: ", change_num)
+        if pagraph_partition == True:
+            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pickle.load(open(fname, 'rb'))
+        else:
+            change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
+            print(p_accum)
+            print("change_num: ", change_num)
+
     gpu_buffers = []
     for i in range(num_devs):
         gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
 
     #print(gpu_buffer_group)
 
-    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group
+    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group, train_nodes_set
 
 
 def get_neighbors(adj_matrix, nodes):

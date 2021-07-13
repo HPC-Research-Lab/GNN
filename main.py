@@ -141,9 +141,6 @@ def train(rank, devices, world_size):
             torch.nn.utils.clip_grad_norm_(susage.parameters(), 5)
 
 
-            #print(optimizer.state_dict()['state'])
-
-  
             if world_size > 1:
                 torch.cuda.synchronize(device)
                 t2 = time.clock_gettime(clk)
@@ -259,9 +256,12 @@ if __name__ == "__main__":
     buffer_size = int(args.buffer_size * lap_matrix.shape[0])
     print('buffer_size: ', buffer_size)
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group, nodes_set_list = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
 
-    #print(len(np.intersect1d(gpu_buffer_group[0], gpu_buffer_group[1], assume_unique=True)))
+    if args.local_shuffle == True and args.pagraph == True:
+        assert(nodes_set_list != None)
+        train_nodes = np.concatenate(nodes_set_list)
+       
 
     sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
 
