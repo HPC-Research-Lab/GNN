@@ -46,8 +46,8 @@ parser.add_argument('--cuda', type=str, default='0',
                     help='Avaiable GPU ID')
 parser.add_argument('--sigmoid_loss', type=bool, default=True)
 parser.add_argument('--local_shuffle', action='store_true')
-parser.add_argument('--buffer_size', type=int, default=250000,
-                    help='Number of buffered nodes on GPU')
+parser.add_argument('--buffer_size', type=float, default=0.2,
+                    help='Ratio of nodes to buffer on GPU')
 parser.add_argument('--scale_factor', type=str, default='',
                     help='Scale factor for skewed sampling')
 parser.add_argument('--lr', type=float, default=0.01,
@@ -255,12 +255,15 @@ if __name__ == "__main__":
 
     _, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
 
-    print(gpu_buffer_group)
+    buffer_size = int(args.buffer_size * lap_matrix.shape[0])
+    print('buffer_size: ', buffer_size)
+
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
+
+    #print(len(np.intersect1d(gpu_buffer_group[0], gpu_buffer_group[1], assume_unique=True)))
 
     sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
-
 
     threads = []
 
