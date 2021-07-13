@@ -8,6 +8,7 @@ from torch_geometric.utils import to_undirected, dropout_adj
 import multiprocessing as mp
 import pickle
 import matplotlib
+import heapq
 
 
 
@@ -206,7 +207,55 @@ def reorder_ogbn_graph(adj_full, feats, class_data, train_idx, valid_idx, test_i
 
     return adj_full, feats_reorder, class_data_reorder, train_idx_reorder, valid_idx_reorder, test_idx_reorder
 
-def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1):
+def get_order_neighbors(lap_matrix, node, orders):
+    cur_nodes = []
+    cur_nodes.append(node)
+    for i in range(len(orders.split(','))):
+        neighbors = set(get_neighbors(lap_matrix, cur_nodes)) | set(cur_nodes)
+        cur_nodes = list(neighbors)
+    return cur_nodes
+
+def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, orders, num_nodes_per_dev):
+    device_id_of_nodes_group = []
+    idx_of_nodes_on_device_group = []
+    gpu_buffer_group = [-1] * num_devs
+    nodes_set_list = [] # In Algorithm1: The temple nodes set on each gpu
+    PV = [1] * num_devs # In Algorithm1: The number of nodes including repeated nodes on gpu
+    score =[0] * num_devs # In Algorithm1: The score of each gpu
+
+    # Initialize 
+    nodes_set = set()
+    device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
+    for i in range(num_devs):
+        device_id_of_nodes_group.append(device_id_of_nodes.copy())
+        nodes_set_list.append(nodes_set.copy())
+    idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
+    idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+
+    # Algorithm1: Allocate nodes and their neighbors to different gpu
+    for i in range(num_devs):
+        nodes_set = set(get_order_neighbors(lap_matrix, train_nodes[i], orders))
+        nodes_set.add(train_nodes[i])
+        PV[i] += len(nodes_set)
+        nodes_set_list[i] = nodes_set
+    for cur_node in train_nodes[num_devs:]:
+        nodes_set = set(get_order_neighbors(lap_matrix, cur_node, orders))
+        nodes_set.add(cur_node)
+        for i in range(num_devs):
+            score[i] = len(nodes_set_list[i] & nodes_set) * (lap_matrix.shape[0] - len(nodes_set_list[i])) / PV[i]
+        max_score_device = score.index(max(score, key=abs))
+        PV[max_score_device] += len(nodes_set)
+        nodes_set_list[max_score_device] = nodes_set_list[max_score_device] | nodes_set
+
+    # Save the top buffer_size nodes on each gpu
+    for i in range(num_devs):
+        gpu_buffer_group[i] = list(map(list(sample_prob[list(nodes_set_list[i])]).index, heapq.nlargest(num_nodes_per_dev, sample_prob[list(nodes_set_list[i])])))
+        device_id_of_nodes_group[i][gpu_buffer_group[i][:]] = devices[i]
+        idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
+    
+    return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group
+
+def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1, patition=False, orders='1,1,0'):
     
     _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
     
@@ -218,59 +267,62 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
         sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
         for i in range(num_conv_layers-1):
             sample_prob *= lap_matrix
-
         buffer_size = num_nodes_per_dev * num_devs
-
         buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
 
         gpu_buffer_group = []
+        idx_of_nodes_on_device_group = []
         device_id_of_nodes_group = []
-        idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
-        for i in range(num_devs):
-            device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
-            gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
-            buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
-            device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
-            device_id_of_nodes_group.append(device_id_of_nodes.copy())
-            idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
-        
-        idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
 
-        p_accum = np.array([0.0] * num_devs)
+        if patition == True:
+            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, orders, num_nodes_per_dev)
+        else:
+            idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
+            for i in range(num_devs):
+                device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
+                gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
+                buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
+                device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
+                device_id_of_nodes_group.append(device_id_of_nodes.copy())
+                idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
+            
+            idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
 
-        for i in range(len(buffered_nodes) - num_nodes_per_dev):
+            p_accum = np.array([0.0] * num_devs)
 
-            if i % num_devs == 0:
-                device_order = np.argsort(p_accum)
+            for i in range(len(buffered_nodes) - num_nodes_per_dev):
 
-            candidate_node = buffered_nodes[num_nodes_per_dev + i]
-            new_node_idx = num_nodes_per_dev - 1 - i // (num_devs - 1)
-            node_to_be_replaced = buffered_nodes[new_node_idx]
-            if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
-                current_dev = device_order[i % num_devs]
-                p_accum[current_dev] += sample_prob[candidate_node]
-                for j in range(num_devs):
-                    device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
-                    idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
-                device_id_of_nodes_group[current_dev][node_to_be_replaced] = device_order[-1] 
-                gpu_buffer_group[current_dev][new_node_idx] = candidate_node 
-            else:
-                break
+                if i % num_devs == 0:
+                    device_order = np.argsort(p_accum)
 
-        change_num = i
+                candidate_node = buffered_nodes[num_nodes_per_dev + i]
+                new_node_idx = num_nodes_per_dev - 1 - i // (num_devs - 1)
+                node_to_be_replaced = buffered_nodes[new_node_idx]
+                if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
+                    current_dev = device_order[i % num_devs]
+                    p_accum[current_dev] += sample_prob[candidate_node]
+                    for j in range(num_devs):
+                        device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
+                        idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
+                    device_id_of_nodes_group[current_dev][node_to_be_replaced] = device_order[-1] 
+                    gpu_buffer_group[current_dev][new_node_idx] = candidate_node 
+                else:
+                    break
 
-        pickle.dump([change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
+            change_num = i
+
+            pickle.dump([change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
     
     else:
         change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
     
-    print(p_accum)
-    print("change_num: ", change_num)
+    #print(p_accum)
+    #print("change_num: ", change_num)
     gpu_buffers = []
     for i in range(num_devs):
         gpu_buffers.append(feat_data[gpu_buffer_group[i]].to(devices[i]))
 
-    print(gpu_buffer_group)
+    #print(gpu_buffer_group)
 
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group
 

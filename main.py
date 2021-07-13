@@ -55,6 +55,7 @@ parser.add_argument('--lr', type=float, default=0.01,
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--sampler', type=str, default='ladies')
+parser.add_argument('--patition', type=bool, default=False)
 
 
 args = parser.parse_args()
@@ -254,7 +255,7 @@ if __name__ == "__main__":
 
     _, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, patition=args.patition, orders=args.orders)
 
     sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
 
