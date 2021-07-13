@@ -207,15 +207,14 @@ def reorder_ogbn_graph(adj_full, feats, class_data, train_idx, valid_idx, test_i
 
     return adj_full, feats_reorder, class_data_reorder, train_idx_reorder, valid_idx_reorder, test_idx_reorder
 
-def get_order_neighbors(lap_matrix, node, orders):
-    cur_nodes = []
-    cur_nodes.append(node)
-    for i in range(len(orders.split(','))):
-        neighbors = set(get_neighbors(lap_matrix, cur_nodes)) | set(cur_nodes)
-        cur_nodes = list(neighbors)
+def get_order_neighbors(lap_matrix, nodes, num_conv_layers):
+    cur_nodes = nodes
+    for i in range(num_conv_layers):
+        cur_nodes = np.unique(np.concatenate((get_neighbors(lap_matrix, cur_nodes), cur_nodes)))
+        #cur_nodes = list(neighbors)
     return cur_nodes
 
-def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, orders, num_nodes_per_dev):
+def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev, block_size=10000):
     device_id_of_nodes_group = []
     idx_of_nodes_on_device_group = []
     gpu_buffer_group = [-1] * num_devs
@@ -224,28 +223,25 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
     score =[0] * num_devs # In Algorithm1: The score of each gpu
 
     # Initialize 
-    nodes_set = set()
+    #nodes_set = set()
     device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
     for i in range(num_devs):
         device_id_of_nodes_group.append(device_id_of_nodes.copy())
-        nodes_set_list.append(nodes_set.copy())
     idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
     idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
 
     # Algorithm1: Allocate nodes and their neighbors to different gpu
     for i in range(num_devs):
-        nodes_set = set(get_order_neighbors(lap_matrix, train_nodes[i], orders))
-        nodes_set.add(train_nodes[i])
+        nodes_set = get_order_neighbors(lap_matrix, train_nodes[i*block_size: (i+1)*block_size], num_conv_layers)
         PV[i] += len(nodes_set)
-        nodes_set_list[i] = nodes_set
-    for cur_node in train_nodes[num_devs:]:
-        nodes_set = set(get_order_neighbors(lap_matrix, cur_node, orders))
-        nodes_set.add(cur_node)
+        nodes_set_list.append(nodes_set)
+    for j in range(num_devs * block_size, len(train_nodes), block_size):
+        nodes_set = get_order_neighbors(lap_matrix, train_nodes[j: min(j+block_size, len(train_nodes))], num_conv_layers)
         for i in range(num_devs):
-            score[i] = len(nodes_set_list[i] & nodes_set) * (lap_matrix.shape[0] - len(nodes_set_list[i])) / PV[i]
+            score[i] = len(np.intersect1d(nodes_set_list[i], nodes_set, assume_unique=True)) * (lap_matrix.shape[0] - len(nodes_set_list[i])) / PV[i]
         max_score_device = score.index(max(score, key=abs))
         PV[max_score_device] += len(nodes_set)
-        nodes_set_list[max_score_device] = nodes_set_list[max_score_device] | nodes_set
+        nodes_set_list[max_score_device] = np.unique(np.concatenate((nodes_set_list[max_score_device], nodes_set)))
 
     # Save the top buffer_size nodes on each gpu
     for i in range(num_devs):
@@ -255,15 +251,15 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
     
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group
 
-def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1, patition=False, orders='1,1,0'):
+def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1, pagraph_partition=False):
     
     _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
     
     num_devs = len(devices)
 
-    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).buf'
+    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).({pagraph_partition}).buf'
 
-    if True or not os.path.exists(fname):
+    if not os.path.exists(fname):
         sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
         for i in range(num_conv_layers-1):
             sample_prob *= lap_matrix
@@ -274,8 +270,8 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
         idx_of_nodes_on_device_group = []
         device_id_of_nodes_group = []
 
-        if patition == True:
-            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, orders, num_nodes_per_dev)
+        if pagraph_partition == True:
+            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev)
         else:
             idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
             for i in range(num_devs):

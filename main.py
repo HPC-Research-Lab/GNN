@@ -38,7 +38,7 @@ parser.add_argument('--pool_num', type=int, default=4,
                     help='Number of Pool')
 parser.add_argument('--batch_size', type=int, default=2048,
                     help='size of output node in a batch')
-parser.add_argument('--orders', type=str, default='1,1,0',
+parser.add_argument('--orders', type=str, default='1,1,1',
                     help='Layer orders')
 parser.add_argument('--samp_num', type=int, default=8192,
                     help='Number of sampled nodes per layer')
@@ -55,7 +55,7 @@ parser.add_argument('--lr', type=float, default=0.01,
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--sampler', type=str, default='ladies')
-parser.add_argument('--patition', type=bool, default=False)
+parser.add_argument('--pagraph', action='store_true')
 
 
 args = parser.parse_args()
@@ -255,7 +255,9 @@ if __name__ == "__main__":
 
     _, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, patition=args.patition, orders=args.orders)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group = create_buffer(lap_matrix, graph_data, args.buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
+
+    print(gpu_buffer_group)
 
     sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
 
