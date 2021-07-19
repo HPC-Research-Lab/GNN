@@ -20,7 +20,6 @@ import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
-
 parser = argparse.ArgumentParser(description='Training GCN on Cora/CiteSeer/PubMed/Reddit Datasets')
 
 '''
@@ -63,7 +62,7 @@ args = parser.parse_args()
 
 def train(rank, devices, world_size):
 
-    global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, barrier, sample_nodes_group, orders, scale_factor
+    global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, barrier, orders, scale_factor
 
     print(f"Rank {rank + 1}/{world_size} thread initialized.", flush=True)
 
@@ -107,7 +106,7 @@ def train(rank, devices, world_size):
         susage.train()
         train_losses = []
 
-        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices,  scale_factor, args.local_shuffle, 'train')
+        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device,  device, devices,  scale_factor, args.local_shuffle, 'train')
 
 
         for fut in as_completed(train_data):
@@ -173,7 +172,7 @@ def train(rank, devices, world_size):
     
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices,  mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, devices,  mode='val')
 
             for fut in as_completed(val_data):    
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
@@ -198,7 +197,7 @@ def train(rank, devices, world_size):
         best_model.eval()
         best_model.cpu()
 
-        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, mode='test')
+        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 2048, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device,  device, devices, mode='test')
 
         correct = 0.0
         total = 0.0
@@ -256,14 +255,10 @@ if __name__ == "__main__":
     buffer_size = int(args.buffer_size * lap_matrix.shape[0])
     print('buffer_size: ', buffer_size)
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group, nodes_set_list = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = partition_graph(graph_data, devices)
 
-    if args.local_shuffle == True and args.pagraph == True:
-        assert(nodes_set_list != None)
-        train_nodes = np.concatenate(nodes_set_list)
        
 
-    sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
 
     threads = []
 
