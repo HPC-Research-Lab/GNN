@@ -144,12 +144,12 @@ def load_ogbn_data(graph_name, root_dir, num_devs):
 
 def reorder_graphsaint_graph(adj_full, feats, class_map, role, num_devs):
     pv_list = [
-            adj_full.data[
+            adj_full.indices[
                 adj_full.indptr[v] : adj_full.indptr[v + 1]
-            ]
+            ] 
             for v in range(adj_full.shape[0])
         ]
-
+    
     (edgecuts, parts) = metis.part_graph(pv_list, num_devs)
     #print(parts)
     rate_nodes = sorted(range(len(pv_list)), key=lambda k: parts[k], reverse=True)
@@ -194,7 +194,7 @@ def reorder_graphsaint_graph(adj_full, feats, class_map, role, num_devs):
 def reorder_ogbn_graph(adj_full, feats, class_data, train_idx, valid_idx, test_idx, num_devs):
 
     pv_list = [
-            adj_full.data[
+            adj_full.indices[
                 adj_full.indptr[v] : adj_full.indptr[v + 1]
             ]
             for v in range(adj_full.shape[0])
