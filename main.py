@@ -106,7 +106,7 @@ def train(rank, devices, world_size):
         susage.train()
         train_losses = []
 
-        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device,  device, devices,  scale_factor, args.local_shuffle, 'train')
+        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device,  devices,  scale_factor, args.local_shuffle, 'train')
 
 
         for fut in as_completed(train_data):
@@ -240,9 +240,9 @@ if __name__ == "__main__":
     barrier = threading.Barrier(world_size)
 
     if 'ogbn' in args.dataset:
-        graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
+        graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'], len(devices))
     else:
-        graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
+        graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'], len(devices))
 
     if args.model == 'graphsage':
         lap_matrix = row_normalize(graph_data[0])
@@ -255,10 +255,11 @@ if __name__ == "__main__":
     buffer_size = int(args.buffer_size * lap_matrix.shape[0])
     print('buffer_size: ', buffer_size)
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers = partition_graph(graph_data, devices)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group, nodes_set_list = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders))
 
-       
-
+    if args.local_shuffle == True:
+        assert(nodes_set_list != None)
+        train_nodes = np.concatenate(nodes_set_list)
 
     threads = []
 
