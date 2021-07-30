@@ -116,12 +116,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
         #     Only use the upper layer's neighborhood to calculate the probability.
         pi = sp.linalg.norm(U, ord=0, axis=0)
         if len(scale_factor) > 0:
-            for r in range(len(devices)):
-                nodes_on_this_gpu = skewed_sampling_nodes[r][len(orders1)-1-d]
-                if r == rank:
-                    pi[nodes_on_this_gpu] = pi[nodes_on_this_gpu] * scale_factor[0]
-                else:
-                    pi[nodes_on_this_gpu] = pi[nodes_on_this_gpu] * scale_factor[1]
+            nodes_on_this_gpu = skewed_sampling_nodes[rank][len(orders1)-1-d]
+            pi[nodes_on_this_gpu] = pi[nodes_on_this_gpu] * scale_factor[0]
 
         #pi = np.array(np.sum(U.multiply(U), axis=0))[0]
         p = pi / np.sum(pi)
