@@ -48,8 +48,6 @@ parser.add_argument('--sigmoid_loss', type=bool, default=True)
 parser.add_argument('--local_shuffle', action='store_true')
 parser.add_argument('--buffer_size', type=float, default=0.2,
                     help='Ratio of nodes to buffer on GPU')
-parser.add_argument('--scale_factor', type=str, default='',
-                    help='Scale factor for skewed sampling')
 parser.add_argument('--lr', type=float, default=0.01,
                     help='Learning rate')
 parser.add_argument('--test', action='store_true')
@@ -233,8 +231,7 @@ if __name__ == "__main__":
     orders = [int(t) for t in orders] 
 
 
-    scale_factor = args.scale_factor.split(',')
-    scale_factor = [int(t) for t in scale_factor if t !='']
+    scale_factor = 1.0
 
     gradients = [None] * world_size
 
