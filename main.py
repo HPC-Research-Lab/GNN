@@ -99,13 +99,14 @@ def train(rank, devices, world_size):
     data_movement_time = 0.0
     communication_time = 0.0
     iter = 0
-
+    factor_increase = False
+    factor_before = 0.0
+    factor_after = 0.0
 
     for epoch in np.arange(args.epoch_num):
         susage.train()
         train_losses = []
-
-        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices,  scale_factor, args.local_shuffle, 'train')
+        train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, scale_factor, args.local_shuffle, 'train')
 
 
         for fut in as_completed(train_data):
@@ -167,13 +168,13 @@ def train(rank, devices, world_size):
 
             train_losses += [loss_train.detach().tolist()]
             del loss_train
-
-    
+  
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices,  mode='val')
-
-            for fut in as_completed(val_data):    
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, scale_factor, args.local_shuffle, mode='val') 
+            # this 'for' line would come to error
+            for fut in as_completed(val_data):
+                
                 adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes = fut.result()
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
@@ -186,10 +187,25 @@ def train(rank, devices, world_size):
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                 loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
                 valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1), flush=True)
+                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f    scale_factor: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1, scale_factor), flush=True)
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
                     torch.save(susage, './save/best_model.pt')
+                barrier.wait()
+                if factor_increase == False:
+                    if data_movement_time / execution_time >= 0.3:
+                        factor_before = scale_factor
+                        scale_factor *= 2
+                    elif data_movement_time / execution_time < 0.3 and scale_factor != 1:
+                        factor_increase = True
+                        factor_after = scale_factor
+                        scale_factor = (factor_before + factor_after) / 2
+                if factor_increase == True:
+                    if data_movement_time / execution_time >= 0.3:
+                        factor_before = scale_factor
+                    else:
+                        factor_after = scale_factor
+                    scale_factor = (factor_before + factor_after) / 2
 
     if args.test == True and rank == 0:
         best_model = torch.load('./save/best_model.pt')
