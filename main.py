@@ -193,15 +193,15 @@ def train(rank, devices, world_size):
                     torch.save(susage, './save/best_model.pt')
                 barrier.wait()
                 if factor_increase == False:
-                    if data_movement_time / execution_time >= 0.3:
+                    if data_movement_time / execution_time >= 0.2:
                         factor_before = scale_factor
                         scale_factor *= 2
-                    elif data_movement_time / execution_time < 0.3 and scale_factor != 1:
+                    elif data_movement_time / execution_time < 0.2 and scale_factor != 1:
                         factor_increase = True
                         factor_after = scale_factor
                         scale_factor = (factor_before + factor_after) / 2
                 if factor_increase == True:
-                    if data_movement_time / execution_time >= 0.3:
+                    if data_movement_time / execution_time >= 0.2:
                         factor_before = scale_factor
                     else:
                         factor_after = scale_factor
