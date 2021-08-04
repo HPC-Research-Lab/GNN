@@ -350,11 +350,10 @@ def get_skewed_sampled_nodes(adj_matrix, gpu_buffers_group, orders):
         cur_nodes = gpu_buffers_group[i]
         sampled_nodes_group[i][0] = cur_nodes
         for j in range(1, len(orders)):
+            pre_nodes = cur_nodes
             cur_nodes = get_neighbors(adj_matrix, cur_nodes)
-            #cur_nodes = np.unique(np.concatenate((get_neighbors(adj_matrix, cur_nodes), cur_nodes)))
-            sampled_nodes_group[i][j] = cur_nodes
+            sampled_nodes_group[i][j] = np.unique(np.concatenate((pre_nodes, cur_nodes)))
 
-        #print(sampled_nodes_group[i])
     
     return sampled_nodes_group
     

@@ -187,13 +187,15 @@ def train(rank, devices, world_size):
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                 loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
                 valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f    scale_factor: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1, scale_factor), flush=True)
+                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f    scale_factor: %.3f     ratio: %3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1, scale_factor, data_movement_time / execution_time), flush=True)
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
                     torch.save(susage, './save/best_model.pt')
 
             if factor_increase == True:
-                if data_movement_time / execution_time >= 0.2:
+                if scale_factor >=16:
+                    factor_increase = False
+                elif data_movement_time / execution_time >= 0.2:
                     factor_before = scale_factor
                     scale_factor *= 2
                 elif data_movement_time / execution_time < 0.1 and scale_factor != 1:
