@@ -54,6 +54,8 @@ parser.add_argument('--test', action='store_true')
 parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--sampler', type=str, default='ladies')
 parser.add_argument('--pagraph', action='store_true')
+parser.add_argument('--locality_sampling', action='store_true')
+
 
 
 args = parser.parse_args()
@@ -99,7 +101,7 @@ def train(rank, devices, world_size):
     data_movement_time = 0.0
     communication_time = 0.0
     iter = 0
-    factor_increase = True
+    factor_increase = args.locality_sampling
     factor_before = 0.0
     factor_after = 0.0
 
