@@ -264,7 +264,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
     
     num_devs = len(devices)
 
-    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).({pagraph_partition}).buf'
+    fname = f'save/pair.{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).({pagraph_partition}).buf'
 
     train_nodes_set = None
 
@@ -297,24 +297,26 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
             
             idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
 
-            p_accum = np.array([0.0] * num_devs)
+            p_accum = np.array([0.0] * 2)
 
             for i in range(len(buffered_nodes) - num_nodes_per_dev):
 
-                if i % num_devs == 0:
+                if i % 2 == 0:
                     device_order = np.argsort(p_accum)
 
                 candidate_node = buffered_nodes[num_nodes_per_dev + i]
-                new_node_idx = num_nodes_per_dev - 1 - i // (num_devs - 1)
+                new_node_idx = num_nodes_per_dev - 1 - i
                 node_to_be_replaced = buffered_nodes[new_node_idx]
                 if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
-                    current_dev = device_order[i % num_devs]
+                    current_dev = device_order[i % 2]
                     p_accum[current_dev] += sample_prob[candidate_node]
                     for j in range(num_devs):
-                        device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
-                        idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
-                    device_id_of_nodes_group[current_dev][node_to_be_replaced] = device_order[-1] 
-                    gpu_buffer_group[current_dev][new_node_idx] = candidate_node 
+                        if j % 2 != current_dev:
+                            device_id_of_nodes_group[j][candidate_node] = devices[current_dev + j // 2 * 2]
+                            idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
+                        else:
+                            device_id_of_nodes_group[j][node_to_be_replaced] = devices[1-current_dev + j // 2 * 2] 
+                            gpu_buffer_group[j][new_node_idx] = candidate_node 
                 else:
                     break
 
