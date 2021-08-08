@@ -309,6 +309,8 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
 
                 candidate_node = buffered_nodes[num_nodes_per_dev + i]
                 new_node_idx = num_nodes_per_dev - 1 - i
+                if new_node_idx < 0:
+                    break
                 node_to_be_replaced = buffered_nodes[new_node_idx]
                 if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
                     current_dev = device_order[0]
