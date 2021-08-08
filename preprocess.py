@@ -303,19 +303,22 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
 
                 if i % 2 == 0:
                     device_order = np.argsort(p_accum)
+                
+                if i % 2 == 1:
+                    continue
 
                 candidate_node = buffered_nodes[num_nodes_per_dev + i]
                 new_node_idx = num_nodes_per_dev - 1 - i
                 node_to_be_replaced = buffered_nodes[new_node_idx]
                 if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
-                    current_dev = device_order[i % 2]
+                    current_dev = device_order[0]
                     p_accum[current_dev] += sample_prob[candidate_node]
                     for j in range(num_devs):
                         if j % 2 != current_dev:
                             device_id_of_nodes_group[j][candidate_node] = devices[current_dev + j // 2 * 2]
                             idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
                         else:
-                            device_id_of_nodes_group[j][node_to_be_replaced] = devices[1-current_dev + j // 2 * 2] 
+                            device_id_of_nodes_group[j][node_to_be_replaced] = devices[device_order[1] + j // 2 * 2] 
                             gpu_buffer_group[j][new_node_idx] = candidate_node 
                 else:
                     break
