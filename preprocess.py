@@ -1,4 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from torch.cuda.memory import max_memory_cached
 from utils import *
 import torch.distributed as dist
 import subprocess
@@ -51,6 +53,10 @@ def load_graphsaint_data(graph_name, root_dir):
 
 
 def load_ogbn_data(graph_name, root_dir):
+
+    if graph_name == 'mag240m_kddcup2021':
+        return load_mag240M(root_dir)
+
     dataset = PygNodePropPredDataset(graph_name, root=root_dir)
     split_idx = dataset.get_idx_split()
     data = dataset[0]
@@ -88,10 +94,54 @@ def load_ogbn_data(graph_name, root_dir):
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
 
-
-    np.savetxt('tmp.output', sp.linalg.norm(adj_full, ord=0, axis=0))
-    
     return (adj_full, class_arr, feats, num_classes, train_idx, valid_idx, test_idx)
+
+
+def load_mag240M(root_dir):
+    from ogb.lsc import MAG240MDataset
+    data = MAG240MDataset(root = root_dir)
+
+    row, col = data.edge_index('paper', 'paper')
+    row, col = np.concatenate([row, col]), np.concatenate([col, row])
+    num_vertices = data.num_papers
+
+    adj_full = sp.csr_matrix(([1]*len(row), (row, col)), shape=(num_vertices, num_vertices), dtype=np.float32)
+    row = None
+    col = None
+
+    feats = torch.from_numpy(data.paper_feat)
+
+    split_idx = data.get_idx_split()
+
+    train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
+
+    class_data = data.paper_label
+
+    max_class_idx = None
+    min_class_idx = None
+
+    for c in class_data:
+        if not np.isnan(c):
+            if max_class_idx == None or max_class_idx < c:
+                max_class_idx = c
+            if min_class_idx == None or min_class_idx > c:
+                min_class_idx = c
+
+    num_classes = max_class_idx - min_class_idx + 1
+    num_classes = int(num_classes.item())
+
+    class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
+    for i in range(len(class_data)):
+        if not np.isnan(class_data[i]): 
+            class_arr[i, class_data[i]-min_class_idx] = 1
+    
+    class_arr = class_arr.tocsr()
+
+    print('feat dim: ', feats.shape, flush=True)
+    print('label dim: ', class_arr.shape, flush=True)
+
+    return (adj_full, class_arr, feats, num_classes, train_idx, valid_idx, test_idx)
+
 
     
 def reorder_graphsaint_graph(adj_full, adj_train, feats, class_map, role):

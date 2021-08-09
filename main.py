@@ -125,9 +125,9 @@ def train(rank, devices, world_size):
             input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
             for i in range(world_size):
-                input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device).float()
             
-            input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
+            input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True).float()
 
             torch.cuda.synchronize(device)
             data_movement_time += time.clock_gettime(clk) - t1
@@ -181,9 +181,9 @@ def train(rank, devices, world_size):
                 input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
                 for i in range(world_size):
-                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device).float()
                 
-                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True).float()
 
                 output = susage.forward(input_feat_data, adjs, sampled_nodes)
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -225,9 +225,9 @@ def train(rank, devices, world_size):
             input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
 
             for i in range(world_size):
-                input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device).float()
             
-            input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
+            input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True).float() 
                 
             output = susage.forward(input_feat_data, adjs, sampled_nodes)
             pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
@@ -256,7 +256,7 @@ if __name__ == "__main__":
 
     barrier = threading.Barrier(world_size)
 
-    if 'ogbn' in args.dataset:
+    if 'ogbn' in args.dataset or 'mag240m' in args.dataset:
         graph_data = load_ogbn_data(args.dataset, os.environ['GNN_DATA_DIR'])
     else:
         graph_data = load_graphsaint_data(args.dataset, os.environ['GNN_DATA_DIR'])
@@ -278,8 +278,10 @@ if __name__ == "__main__":
         assert(nodes_set_list != None)
         train_nodes = np.concatenate(nodes_set_list)
        
-
-    sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
+    if args.locality_sampling == True:
+        sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
+    else:
+        sample_nodes_group = None
 
     threads = []
 
