@@ -30,7 +30,7 @@ parser.add_argument('--dataset', type=str, default='data/ppi',
                     help='Dataset name: ppi/reddit/amazon')
 parser.add_argument('--model', type=str, default='graphsage',
                     help='GNN model: graphsage/gcn')
-parser.add_argument('--nhid', type=int, default=512,
+parser.add_argument('--nhid', type=int, default=1024,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default=4,
                     help='Number of Epoch')
@@ -189,7 +189,7 @@ def train(rank, devices, world_size):
                 pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
                 loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
                 valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
-                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f    scale_factor: %.3f     ratio: %3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1, scale_factor, data_movement_time / execution_time), flush=True)
+                print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f    mem: %d     scale_factor: %.3f     ratio: %.3f ") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1, torch.cuda.max_memory_reserved(0), scale_factor, data_movement_time / execution_time), flush=True)
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
                     torch.save(susage, './save/best_model.pt')
