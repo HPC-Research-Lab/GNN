@@ -173,7 +173,7 @@ def train(rank, devices, world_size):
   
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 256, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, scale_factor, args.local_shuffle, mode='val') 
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, scale_factor, args.local_shuffle, mode='val') 
             # this 'for' line would come to error
             for fut in as_completed(val_data):
                 
@@ -195,12 +195,12 @@ def train(rank, devices, world_size):
                     torch.save(susage, './save/best_model.pt')
 
             if factor_increase == True:
-                if scale_factor >=16:
+                if scale_factor >=8:
                     factor_increase = False
                 elif data_movement_time / execution_time >= 0.2:
                     factor_before = scale_factor
                     scale_factor *= 2
-                elif data_movement_time / execution_time < 0.1 and scale_factor != 1:
+                elif data_movement_time / execution_time < 0.15 and scale_factor != 1:
                     factor_after = scale_factor
                     scale_factor = (factor_before + factor_after) / 2
                 else:
