@@ -30,7 +30,7 @@ parser.add_argument('--dataset', type=str, default='data/ppi',
                     help='Dataset name: ppi/reddit/amazon')
 parser.add_argument('--model', type=str, default='graphsage',
                     help='GNN model: graphsage/gcn')
-parser.add_argument('--nhid', type=int, default=1024,
+parser.add_argument('--nhid', type=int, default=512,
                     help='Hidden state dimension')
 parser.add_argument('--epoch_num', type=int, default=4,
                     help='Number of Epoch')
