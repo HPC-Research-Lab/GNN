@@ -397,18 +397,16 @@ def get_neighbors(adj_matrix, nodes):
 
 
 def get_skewed_sampled_nodes(adj_matrix, gpu_buffers_group, orders):
-    sampled_nodes_group = [[None for j in range(len(orders))] for i in range(len(gpu_buffers_group))]
+    neighboring_nodes = []
+    neighboring_nodes.append(np.unique(np.concatenate(gpu_buffers_group)))
+    v = np.array([0]*adj_matrix.shape[1])
+    v[neighboring_nodes[0]] = 1
 
-    for i in range(len(gpu_buffers_group)):
-        cur_nodes = gpu_buffers_group[i]
-        sampled_nodes_group[i][0] = cur_nodes
-        for j in range(1, len(orders)):
-            pre_nodes = cur_nodes
-            cur_nodes = get_neighbors(adj_matrix, cur_nodes)
-            sampled_nodes_group[i][j] = np.unique(np.concatenate((pre_nodes, cur_nodes)))
+    for i in range(1, len(orders)):
+        v = v * adj_matrix
+        neighboring_nodes.append(np.argsort(-1*v)[:8192])
 
-    
-    return sampled_nodes_group
+    return [neighboring_nodes] * len(gpu_buffers_group)
     
 
 
