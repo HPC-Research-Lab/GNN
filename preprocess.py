@@ -302,7 +302,7 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
 
     # Save the top buffer_size nodes on each gpu
     for i in range(num_devs):
-        gpu_buffer_group[i] = list(map(list(sample_prob[list(nodes_set_list[i])]).index, heapq.nlargest(num_nodes_per_dev, sample_prob[list(nodes_set_list[i])])))
+        gpu_buffer_group[i] = np.argsort(-1*sample_prob[i*block_size: min((i+1)*block_size, lap_matrix.shape[0])])[:num_nodes_per_dev] + i*block_size
         device_id_of_nodes_group[i][gpu_buffer_group[i][:]] = devices[i]
         idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
     
