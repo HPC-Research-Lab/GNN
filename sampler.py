@@ -205,12 +205,15 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
                 futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, len(target_nodes), samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
             yield from futures
     elif mode == 'val':
-        futures = []
-        # sample a batch with more neighbors for validation
-        idx = torch.randperm(len(target_nodes))[:batch_size]
-        batch_nodes = target_nodes[idx]
-        futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), batch_nodes, len(target_nodes), samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, 1,  device, devices))
-        yield from futures
+        num_batches = len(target_nodes) // batch_size
+        if (num_batches % batch_size):
+          num_batches += 1
+        for i in range(0, num_batches, 32):   # 32 is the queue size
+            futures = []
+            for j in range(i, min(32+i, num_batches)):
+                target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, len(target_nodes), samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, scale_factor,  device, devices))
+            yield from futures
     elif mode == 'test':
         num_batches = len(target_nodes) // batch_size
         if (num_batches % batch_size):
