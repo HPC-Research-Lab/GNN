@@ -68,6 +68,7 @@ def load_ogbn_data(graph_name, root_dir):
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
 
     class_data = data.y.data.flatten()
+    #print(len(class_data), num_vertices)
     assert(len(class_data) == num_vertices)
 
     class_data_compact = class_data[~torch.isnan(class_data)]

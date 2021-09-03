@@ -36,9 +36,9 @@ parser.add_argument('--epoch_num', type=int, default=4,
                     help='Number of Epoch')
 parser.add_argument('--pool_num', type=int, default=4,
                     help='Number of Pool')
-parser.add_argument('--batch_size', type=int, default=2048,
+parser.add_argument('--batch_size', type=int, default=512,
                     help='size of output node in a batch')
-parser.add_argument('--orders', type=str, default='1,1,0',
+parser.add_argument('--orders', type=str, default='1,1,1',
                     help='Layer orders')
 parser.add_argument('--samp_num', type=int, default=8192,
                     help='Number of sampled nodes per layer')
@@ -191,7 +191,7 @@ def train(rank, devices, world_size):
     
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 256, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
             correct = 0.0
             total = 0.0
             for fut in as_completed(val_data):
@@ -218,7 +218,7 @@ def train(rank, devices, world_size):
         best_model.eval()
         best_model.cpu()
 
-        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 256, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
         correct = 0.0
         total = 0.0
