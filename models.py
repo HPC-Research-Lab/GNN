@@ -32,10 +32,10 @@ class GraphSageConvolution(nn.Module):
 
             # epoch = 9 iteration = 2709
             # epoch = 19 iteration = 5719
-            if epoch == 9:
-                self.beta = 0.95
-            if epoch == 19:
-                self.beta = 0.99
+            #if epoch == 9:
+            #    self.beta = 0.95
+            #if epoch == 19:
+            #    self.beta = 0.99
 
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, x)
