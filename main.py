@@ -62,6 +62,7 @@ parser.add_argument('--lr', type=float, default=0.01,
 args = parser.parse_args()
 
 
+
 def train(rank, devices, world_size):
 
     global lap_matrix, labels_full, feat_data, num_classes, train_nodes, valid_nodes, test_nodes, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gradients, barrier
@@ -162,7 +163,8 @@ def train(rank, devices, world_size):
             output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, iter-1, epoch)
 
 
-            loss_train = loss(output, out_label, args.sigmoid_loss, device)
+            loss_train =  F.nll_loss(output.log_softmax(dim=-1), out_label.long())
+            #loss(output, out_label, args.sigmoid_loss, device)
 
             loss_train.backward()
 
@@ -191,7 +193,7 @@ def train(rank, devices, world_size):
     
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, [s*20 for s in samp_num_list], feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
             correct = 0.0
             total = 0.0
             for fut in as_completed(val_data):
@@ -201,45 +203,38 @@ def train(rank, devices, world_size):
                     input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True)
                 output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, 0, 0, epoch)
-                pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-                loss_valid = loss(output, out_label, args.sigmoid_loss, device).detach().tolist()
-                valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss)
+                pred = output.log_softmax(dim=-1)
+                valid_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy())
                 correct += valid_f1 * out_label.shape[0]
                 total += out_label.shape[0]
-            print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f Valid F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), valid_f1), flush=True)
-            if valid_f1 >= best_val:
-                best_val = valid_f1
-                torch.save(susage, './save/best_model.pt')
+
+
+            test_data = prepare_data(pool, sampler, test_nodes, [s*20 for s in samp_num_list], feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+
+            correct_test = 0.0
+            total_test = 0.0
+
+            for fut in as_completed(test_data):    
+                adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer, normfact_row_list = fut.result()
+                input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
+
+                for i in range(world_size):
+                    input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
                 
-                
-
-    if args.test == True and rank == 0:
-        best_model = torch.load('./save/best_model.pt')
-        best_model.eval()
-        best_model.cpu()
-
-        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
-
-        correct = 0.0
-        total = 0.0
-
-        for fut in as_completed(test_data):    
-            adjs, input_nodes_mask_on_devices, input_nodes_mask_on_cpu, nodes_idx_on_devices, nodes_idx_on_cpu, num_input_nodes, out_label, sampled_nodes, nodes_per_layer, normfact_row_list = fut.result()
-            input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
-
-            for i in range(world_size):
-                input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device)
+                input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
+                    
+                output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, 0, epoch)
+                pred = output.log_softmax(dim=-1)
+                test_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy()) 
+                correct_test += test_f1 * out_label.shape[0]
+                total_test += out_label.shape[0]
             
-            input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True) 
+            print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f Valid F1: %.3f Test F1: %.3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), correct/total, correct_test/total_test), flush=True)
                 
-            output = susage.forward(input_feat_data, adjs, sampled_nodes, nodes_per_layer, normfact_row_list, 0, epoch)
-            pred = nn.Sigmoid()(output) if args.sigmoid_loss else F.softmax(output, dim=1)
-            test_f1, f1_mac = calc_f1(out_label.cpu().numpy(), pred.detach().cpu().numpy(), args.sigmoid_loss) 
-            correct += test_f1 * out_label.shape[0]
-            total += out_label.shape[0]
-            
+                
 
-        print('Test f1 score: %.3f' % (correct / total), flush=True)
+
+        
     
 
 

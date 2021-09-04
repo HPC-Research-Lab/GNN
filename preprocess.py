@@ -18,8 +18,9 @@ def load_graphsaint_data(graph_name, root_dir):
     role = json.load(open(f'{root_dir}/{graph_name}/role.json'))
     feats = np.load(f'{root_dir}/{graph_name}/feats.npy').astype(np.float32)
     class_map = json.load(open(f'{root_dir}/{graph_name}/class_map.json'))
-    class_map = {int(k):v for k,v in class_map.items()}
-    assert len(class_map) == feats.shape[0]
+    class_arr = np.array([0]*len(class_map)) 
+    for k, v in class_map.items():
+        class_arr[int(k)] = v
     # ---- normalize feats ----
     train_nodes = role['tr']
     train_feats = feats[train_nodes]
@@ -28,20 +29,10 @@ def load_graphsaint_data(graph_name, root_dir):
     feats = scaler.transform(feats)
 
     num_vertices = adj_full.shape[0]
-    if isinstance(list(class_map.values())[0], list):
-        num_classes = len(list(class_map.values())[0])
-        class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
-        for k,v in class_map.items():
-            class_arr[k] = v
-    else:
-        num_classes = max(class_map.values()) - min(class_map.values()) + 1
-        class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
-        offset = min(class_map.values())
-        for k,v in class_map.items():
-            class_arr[k, v-offset] = 1
+    num_classes = class_arr.max() - class_arr.min() + 1
+    class_arr = class_arr - class_arr.min()
+    class_arr = torch.from_numpy(class_arr)
 
-    class_arr = class_arr.tocsr()
-    
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)
     
@@ -68,23 +59,8 @@ def load_ogbn_data(graph_name, root_dir):
     train_idx, valid_idx, test_idx = split_idx['train'], split_idx['valid'], split_idx['test']
 
     class_data = data.y.data.flatten()
-    #print(len(class_data), num_vertices)
-    assert(len(class_data) == num_vertices)
-
-    class_data_compact = class_data[~torch.isnan(class_data)]
-
-    max_class_idx = torch.max(class_data_compact)
-    min_class_idx = torch.min(class_data_compact)
-
-    num_classes = max_class_idx - min_class_idx + 1
-    num_classes = int(num_classes.item())
-
-    class_arr = sp.lil_matrix((num_vertices, num_classes), dtype=np.int32)
-    for i in range(len(class_data)):
-        if not torch.isnan(class_data[i]): 
-            class_arr[i, class_data[i]-min_class_idx] = 1
-    
-    class_arr = class_arr.tocsr()
+    class_arr = class_data - class_data.min()
+    num_classes = class_arr.max().item() + 1
 
     print('feat dim: ', feats.shape, flush=True)
     print('label dim: ', class_arr.shape, flush=True)

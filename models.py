@@ -116,10 +116,10 @@ class GraphConvolution(nn.Module):
         if (self.training == True and self.sco == True):
             feat = x
 
-            #if epoch == 25:
-            #    self.beta = 0.95
-            #if epoch == 50:
-            #    self.beta = 0.99
+            if epoch == 10:
+                self.beta = 0.95
+            if epoch == 20:
+                self.beta = 0.99
 
             if self.order > 0:
                 feat = custom_sparse_ops.spmm(adj, feat)
