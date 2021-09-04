@@ -193,7 +193,7 @@ def train(rank, devices, world_size):
     
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, [s*20 for s in samp_num_list], feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, [feat_data.shape[0] for s in samp_num_list], feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
             correct = 0.0
             total = 0.0
             for fut in as_completed(val_data):
@@ -209,7 +209,7 @@ def train(rank, devices, world_size):
                 total += out_label.shape[0]
 
 
-            test_data = prepare_data(pool, sampler, test_nodes, [s*20 for s in samp_num_list], feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+            test_data = prepare_data(pool, sampler, test_nodes, [feat_data.shape[0] for s in samp_num_list], feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
             correct_test = 0.0
             total_test = 0.0
