@@ -191,7 +191,7 @@ def train(rank, devices, world_size):
     
         if rank == 0:
             susage.eval()
-            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 256, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
+            val_data = prepare_data(pool, sampler, valid_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices,  mode='val')
             correct = 0.0
             total = 0.0
             for fut in as_completed(val_data):
@@ -218,7 +218,7 @@ def train(rank, devices, world_size):
         best_model.eval()
         best_model.cpu()
 
-        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 256, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
+        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, device, devices, mode='test')
 
         correct = 0.0
         total = 0.0

@@ -32,9 +32,9 @@ class GraphSageConvolution(nn.Module):
 
             # epoch = 9 iteration = 2709
             # epoch = 19 iteration = 5719
-            #if epoch == 9:
+            #if epoch == 25:
             #    self.beta = 0.95
-            #if epoch == 19:
+            #if epoch == 50:
             #    self.beta = 0.99
 
             if self.order > 0:
@@ -116,11 +116,9 @@ class GraphConvolution(nn.Module):
         if (self.training == True and self.sco == True):
             feat = x
 
-            # epoch = 9 iteration = 2709
-            # epoch = 19 iteration = 5719
-            #if epoch == 9:
+            #if epoch == 25:
             #    self.beta = 0.95
-            #if epoch == 19:
+            #if epoch == 50:
             #    self.beta = 0.99
 
             if self.order > 0:
