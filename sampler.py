@@ -205,6 +205,6 @@ def prepare_data(pool, sampler, target_nodes, samp_num_list, num_nodes, lap_matr
             futures = []
             for j in range(i, min(32+i, num_batches)):
                 target_nodes_chunk = target_nodes[batch_size*j: min((j+1)*batch_size, len(target_nodes))]
-                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, skewed_sampling_nodes, [],  rank, devices))
+                futures.append(pool.submit(sampler, np.random.randint(2**32 - 1), target_nodes_chunk, samp_num_list, num_nodes, lap_matrix, labels_full, orders, device_id_of_nodes, idx_of_nodes_on_device, skewed_sampling_nodes, scale_factor,  rank, devices))
             yield from futures
 
