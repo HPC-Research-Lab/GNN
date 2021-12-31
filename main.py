@@ -48,12 +48,16 @@ parser.add_argument('--sigmoid_loss', type=bool, default=True)
 parser.add_argument('--local_shuffle', action='store_true')
 parser.add_argument('--buffer_size', type=float, default=0.2,
                     help='Ratio of nodes to buffer on GPU')
+parser.add_argument('--scale_factor', type=str, default='',
+                    help='Scale factor for skewed sampling')
 parser.add_argument('--lr', type=float, default=0.01,
                     help='Learning rate')
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--alpha', type=float, default=0)
 parser.add_argument('--sampler', type=str, default='ladies')
 parser.add_argument('--pagraph', action='store_true')
+parser.add_argument('--naive', action='store_true')
+parser.add_argument('--random', action='store_true')
 parser.add_argument('--locality_sampling', action='store_true')
 
 
@@ -214,8 +218,7 @@ def train(rank, devices, world_size):
         best_model = torch.load('./save/best_model.pt')
         best_model.eval()
         best_model.cpu()
-
-        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, mode='test')
+        test_data = prepare_data(pool, sampler, test_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, 128, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, scale_factor, args.local_shuffle, mode='test')
 
         correct = 0.0
         total = 0.0
@@ -235,7 +238,7 @@ def train(rank, devices, world_size):
             correct += test_f1 * out_label.shape[0]
             total += out_label.shape[0]
 
-        print('Test f1 score: %.2f' % (correct / total), flush=True)
+        print('Test f1 score: %.3f' % (correct / total), flush=True)
     
 
 
@@ -272,7 +275,7 @@ if __name__ == "__main__":
     buffer_size = int(args.buffer_size * lap_matrix.shape[0])
     print('buffer_size: ', buffer_size)
 
-    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group, nodes_set_list = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph)
+    device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffers, gpu_buffer_group, nodes_set_list = create_buffer(lap_matrix, graph_data, buffer_size, devices, args.dataset, sum(orders), alpha=args.alpha, pagraph_partition=args.pagraph, naive_partition=args.naive, random_partition=args.random)
 
     if args.local_shuffle == True and args.pagraph == True:
         assert(nodes_set_list != None)

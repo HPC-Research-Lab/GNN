@@ -11,7 +11,7 @@ import multiprocessing as mp
 import pickle
 import matplotlib
 import heapq
-
+from random import shuffle
 
 
 def load_graphsaint_data(graph_name, root_dir):
@@ -302,79 +302,91 @@ def pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, 
 
     # Save the top buffer_size nodes on each gpu
     for i in range(num_devs):
-        gpu_buffer_group[i] = np.argsort(-1*sample_prob[i*block_size: min((i+1)*block_size, lap_matrix.shape[0])])[:num_nodes_per_dev] + i*block_size
+        gpu_buffer_group[i] = list(map(list(sample_prob[list(nodes_set_list[i])]).index, heapq.nlargest(num_nodes_per_dev, sample_prob[list(nodes_set_list[i])])))
         device_id_of_nodes_group[i][gpu_buffer_group[i][:]] = devices[i]
         idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
     
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set
 
-def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1, pagraph_partition=False):
+def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers, alpha=1, pagraph_partition=False, naive_partition=False, random_partition=False):
     
     _, class_arr, feat_data, num_classes, train_nodes, valid_nodes, test_nodes = graph_data
     
     num_devs = len(devices)
 
-    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).({pagraph_partition}).buf'
+    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({alpha}).({num_conv_layers}).({pagraph_partition}).({naive_partition}).({random_partition})buf'
 
     train_nodes_set = None
 
 
     if not os.path.exists(fname):
-        sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
-        for i in range(num_conv_layers-1):
-            sample_prob *= lap_matrix
-        buffer_size = num_nodes_per_dev * num_devs
-        buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
-
+        # node original id on each device
         gpu_buffer_group = []
+        # node idx on each device
         idx_of_nodes_on_device_group = []
         device_id_of_nodes_group = []
-
-
-        if pagraph_partition == True:
-            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev)
-
-            pickle.dump([device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set], open(fname, 'wb'))
-        else:
+        if random_partition == True:
+            shuffle(train_nodes)
+        if naive_partition == True:
             idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
             for i in range(num_devs):
                 device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
-                gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
-                buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
+                buffered_nodes_on_dev_i = train_nodes[i*num_nodes_per_dev : (i+1)*num_nodes_per_dev]
+                gpu_buffer_group.append(buffered_nodes_on_dev_i)
                 device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
                 device_id_of_nodes_group.append(device_id_of_nodes.copy())
-                idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
-            
+                idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
             idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+        else:
+            sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
+            for i in range(num_conv_layers-1):
+                sample_prob *= lap_matrix
+            buffer_size = num_nodes_per_dev * num_devs
+            buffered_nodes = np.argsort(-1*sample_prob)[:buffer_size]
 
-            p_accum = np.array([0.0] * num_devs)
+            if pagraph_partition == True:
+                device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pagraph(train_nodes, lap_matrix, sample_prob, devices, feat_data, num_devs, num_conv_layers, num_nodes_per_dev)
 
-            for i in range(len(buffered_nodes) - num_nodes_per_dev):
+                pickle.dump([device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set], open(fname, 'wb'))
+            else:
+                idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
+                for i in range(num_devs):
+                    device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
+                    gpu_buffer_group.append(buffered_nodes[:num_nodes_per_dev].copy())
+                    buffered_nodes_on_dev_i = buffered_nodes[:num_nodes_per_dev]
+                    device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
+                    device_id_of_nodes_group.append(device_id_of_nodes.copy())
+                    idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))    
+                
+                idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
 
-                if i % num_devs == 0:
-                    device_order = np.argsort(p_accum)
+                p_accum = np.array([0.0] * num_devs)
 
-                if i % num_devs == num_devs - 1:
-                    continue
+                for i in range(len(buffered_nodes) - num_nodes_per_dev):
 
-                candidate_node = buffered_nodes[num_nodes_per_dev + i]
-                new_node_idx = num_nodes_per_dev - 1 - i // num_devs
-                node_to_be_replaced = buffered_nodes[new_node_idx]
-                if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
-                    current_dev = device_order[i % num_devs]
-                    p_accum[current_dev] += sample_prob[candidate_node]
-                    for j in range(num_devs):
-                        device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
-                        idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
-                    device_id_of_nodes_group[current_dev][node_to_be_replaced] = devices[device_order[-1]] 
-                    gpu_buffer_group[current_dev][new_node_idx] = candidate_node 
-                else:
-                    break
+                    if i % num_devs == 0:
+                        device_order = np.argsort(p_accum)
 
-            change_num = i
+                    if i % num_devs == num_devs - 1:
+                        continue
 
-            pickle.dump([change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
-    
+                    candidate_node = buffered_nodes[num_nodes_per_dev + i]
+                    new_node_idx = num_nodes_per_dev - 1 - i // num_devs
+                    node_to_be_replaced = buffered_nodes[new_node_idx]
+                    if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
+                        current_dev = device_order[i % num_devs]
+                        p_accum[current_dev] += sample_prob[candidate_node]
+                        for j in range(num_devs):
+                            device_id_of_nodes_group[j][candidate_node] = devices[current_dev]
+                            idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
+                        device_id_of_nodes_group[current_dev][node_to_be_replaced] = devices[device_order[-1]] 
+                        gpu_buffer_group[current_dev][new_node_idx] = candidate_node 
+                    else:
+                        break
+
+                change_num = i
+
+                pickle.dump([change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
     else:
         if pagraph_partition == True:
             device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pickle.load(open(fname, 'rb'))
