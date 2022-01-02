@@ -281,7 +281,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
     
     num_devs = len(devices)
 
-    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({num_conv_layers}).(metis).buf'
+    fname = f'save/{dataset}.({num_devs}).({num_nodes_per_dev}).({num_conv_layers}).(pair_metis).buf'
 
     train_nodes_set = None
 
