@@ -337,6 +337,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
                 device_id_of_nodes_group.append(device_id_of_nodes.copy())
                 idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
             idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+            pickle.dump([device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
         else:
             sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
             for i in range(num_conv_layers-1):
@@ -390,6 +391,8 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
     else:
         if pagraph_partition == True:
             device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pickle.load(open(fname, 'rb'))
+        elif naive_partition == True:
+            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
         else:
             change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
             print(p_accum)
