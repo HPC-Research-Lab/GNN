@@ -326,7 +326,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
             idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
             for i in range(num_devs):
                 device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
-                buffered_nodes_on_dev_i = train_nodes[i*num_nodes_per_dev : (i+1)*num_nodes_per_dev]
+                buffered_nodes_on_dev_i = train_nodes[(i%2)*num_nodes_per_dev : (i%2+1)*num_nodes_per_dev]
                 gpu_buffer_group.append(buffered_nodes_on_dev_i)
                 device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
                 device_id_of_nodes_group.append(device_id_of_nodes.copy())
