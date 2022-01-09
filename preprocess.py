@@ -373,6 +373,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
                         current_dev = device_order[0]
                         p_accum[current_dev] += sample_prob[candidate_node]
                         for j in range(num_devs):
+                            # if j and current_dev are not in 00 11 22 33 02 20 13 31
                             if j % 2 != current_dev:
                                 device_id_of_nodes_group[j][candidate_node] = devices[current_dev + j // 2 * 2]
                                 idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
