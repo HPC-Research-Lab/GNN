@@ -57,7 +57,7 @@ parser.add_argument('--pagraph', action='store_true')
 parser.add_argument('--naive', action='store_true')
 parser.add_argument('--random', action='store_true')
 parser.add_argument('--locality_sampling', action='store_true')
-
+parser.add_argument('--checkpoint', action='store_true')
 
 
 args = parser.parse_args()
@@ -90,17 +90,23 @@ def train(rank, devices, world_size):
         encoder = GraphSage(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
     elif args.model == 'gcn':
         encoder = GCN(nfeat = feat_data.shape[1], nhid=args.nhid, orders=orders, dropout=0.1).to(device)
-
-    susage  = GNN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
+    if args.checkpoint == True:
+        checkpoint = torch.load('./save/best_model.2x4GPU.locality_sampling.pt')
+        susage = checkpoint['model']
+        epoch_before = checkpoint['epoch']
+        execution_time = checkpoint['exe_time']
+        data_movement_time = checkpoint['move_time']
+    else:
+        susage  = GNN(encoder = encoder, num_classes=num_classes, dropout=0.1, inp = feat_data.shape[1])
+        execution_time = 0.0
+        data_movement_time = 0.0
+    
     susage.to(device) 
-
     clk = time.CLOCK_THREAD_CPUTIME_ID
 
 
     optimizer = optim.Adam(filter(lambda p : p.requires_grad, susage.parameters()), lr=args.lr)
     best_val = -1
-    execution_time = 0.0
-    data_movement_time = 0.0
     communication_time = 0.0
     iter = 0
     factor_increase = args.locality_sampling
@@ -108,6 +114,8 @@ def train(rank, devices, world_size):
     factor_after = 0.0
 
     for epoch in np.arange(args.epoch_num):
+        if args.checkpoint == True:
+            epoch += epoch_before
         susage.train()
         train_losses = []
         train_data = prepare_data(pool, sampler, train_nodes, samp_num_list, feat_data.shape[0], lap_matrix, labels_full, orders, args.batch_size, rank, world_size, device_id_of_nodes, idx_of_nodes_on_device, sample_nodes_group, device, devices, scale_factor, args.local_shuffle, 'train')
@@ -125,10 +133,8 @@ def train(rank, devices, world_size):
             t1 = time.clock_gettime(clk)
 
             input_feat_data = torch.cuda.FloatTensor(num_input_nodes, feat_data.shape[1])
-
             for i in range(world_size):
                 input_feat_data[input_nodes_mask_on_devices[i]] = gpu_buffers[i][nodes_idx_on_devices[i]].to(device).float()
-            
             input_feat_data[input_nodes_mask_on_cpu] = feat_data[nodes_idx_on_cpu].to(device, non_blocking=True).float()
 
             torch.cuda.synchronize(device)
@@ -194,7 +200,10 @@ def train(rank, devices, world_size):
                 print(("Epoch: %d (%.2fs)(%.2fs)(%.2fs)(%.2fs)(%.2fs) Train Loss: %.2f    Valid Loss: %.2f Valid F1: %.3f    scale_factor: %.3f     ratio: %3f") % (epoch, custom_sparse_ops.spmm_forward_time, custom_sparse_ops.spmm_backward_time, data_movement_time, communication_time, execution_time, np.average(train_losses), loss_valid, valid_f1, scale_factor, data_movement_time / execution_time), flush=True)
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
-                    torch.save(susage, './save/best_model.pt')
+                    if args.locality_sampling == True:
+                        torch.save({'model':susage, 'epoch':epoch, 'move_time':data_movement_time,'exe_time':execution_time}, './save/best_model.2x4GPU.locality_sampling.pt')
+                    else:
+                        torch.save({'model':susage, 'epoch':epoch, 'move_time':data_movement_time,'exe_time':execution_time}, './save/best_model.2x4GPU.ours.pt')
 
             if factor_increase == True:
                 if scale_factor >=8:
