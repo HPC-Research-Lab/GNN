@@ -337,6 +337,7 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
                 device_id_of_nodes_group.append(device_id_of_nodes.copy())
                 idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
             idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
+            pickle.dump([device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
         else:
             sample_prob = np.ones(len(train_nodes)) * lap_matrix[train_nodes, :]
             for i in range(num_conv_layers-1):
@@ -366,12 +367,12 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
 
                     if i % num_devs == 0:
                         device_order = np.argsort(p_accum)
-
+                    # skip the replacement on the last device
                     if i % num_devs == num_devs - 1:
                         continue
-
                     candidate_node = buffered_nodes[num_nodes_per_dev + i]
                     new_node_idx = num_nodes_per_dev - 1 - i // num_devs
+
                     node_to_be_replaced = buffered_nodes[new_node_idx]
                     if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
                         current_dev = device_order[i % num_devs]
@@ -390,6 +391,8 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
     else:
         if pagraph_partition == True:
             device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set = pickle.load(open(fname, 'rb'))
+        elif naive_partition == True:
+            device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
         else:
             change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group = pickle.load(open(fname, 'rb'))
             print(p_accum)
@@ -418,7 +421,7 @@ def get_skewed_sampled_nodes(adj_matrix, gpu_buffers_group, orders):
         v = v * adj_matrix
         neighboring_nodes.append(np.argsort(-1*v)[:8192])
 
-    return [neighboring_nodes] * len(gpu_buffers_group)
+    return neighboring_nodes
     
 
 
