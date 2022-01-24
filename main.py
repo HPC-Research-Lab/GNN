@@ -206,12 +206,12 @@ def train(rank, devices, world_size):
                         torch.save({'model':susage, 'epoch':epoch, 'move_time':data_movement_time,'exe_time':execution_time}, './save/best_model.2x4GPU.ours.pt')
 
             if factor_increase == True:
-                if scale_factor >=8:
+                if scale_factor >=16:
                     factor_increase = False
                 elif data_movement_time / execution_time >= 0.2:
                     factor_before = scale_factor
                     scale_factor *= 2
-                elif data_movement_time / execution_time < 0.15 and scale_factor != 1:
+                elif data_movement_time / execution_time < 0.1 and scale_factor != 1:
                     factor_after = scale_factor
                     scale_factor = (factor_before + factor_after) / 2
                 else:
@@ -288,8 +288,10 @@ if __name__ == "__main__":
         assert(nodes_set_list != None)
         train_nodes = np.concatenate(nodes_set_list)
        
-
-    sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
+    if args.locality_sampling == True:
+        sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
+    else:
+        sample_nodes_group = None
 
     threads = []
 
