@@ -289,7 +289,7 @@ if __name__ == "__main__":
         train_nodes = np.concatenate(nodes_set_list)
        
     if args.locality_sampling == True:
-        sample_nodes_group = get_skewed_sampled_nodes(graph_data[0]+sp.eye(graph_data[0].shape[0], gpu_buffer_group, orders)
+        sample_nodes_group = get_skewed_sampled_nodes(graph_data[0]+sp.eye(graph_data[0].shape[0], gpu_buffer_group, orders))
     else:
         sample_nodes_group = None
 
