@@ -420,7 +420,6 @@ def get_skewed_sampled_nodes(adj_matrix, gpu_buffers_group, orders):
     for i in range(1, len(orders)):
         v = v * adj_matrix
         neighboring_nodes.append(np.argsort(-1*v)[:8192])
-
     return neighboring_nodes
     
 

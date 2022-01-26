@@ -114,7 +114,8 @@ def ladies_sampler(seed, batch_nodes, samp_num_list, num_nodes, lap_matrix, labe
         fullrowptr = torch.from_numpy(U.indptr.astype(np.int32)).to(device)
 
         #     Only use the upper layer's neighborhood to calculate the probability.
-        pi = sp.linalg.norm(U, ord=0, axis=0)  
+        pi = sp.linalg.norm(U, ord=0, axis=0) 
+
         if scale_factor > 1:
             nodes_on_this_gpu = skewed_sampling_nodes[len(orders1)-d-1]
             pi[nodes_on_this_gpu] = pi[nodes_on_this_gpu] * scale_factor

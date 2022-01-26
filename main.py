@@ -197,7 +197,7 @@ def train(rank, devices, world_size):
                 if valid_f1 > best_val + 1e-2:
                     best_val = valid_f1
                     torch.save(susage, './save/best_model.pt')
-
+            
             if factor_increase == True:
                 if scale_factor >=16:
                     factor_increase = False
@@ -209,7 +209,7 @@ def train(rank, devices, world_size):
                     scale_factor = (factor_before + factor_after) / 2
                 else:
                     factor_increase = False
-                 
+            
         
         barrier.wait()
 
@@ -282,7 +282,7 @@ if __name__ == "__main__":
         train_nodes = np.concatenate(nodes_set_list)
        
     if args.locality_sampling == True:
-        sample_nodes_group = get_skewed_sampled_nodes(graph_data[0], gpu_buffer_group, orders)
+        sample_nodes_group = get_skewed_sampled_nodes(graph_data[0]+sp.eye(graph_data[0].shape[0]), gpu_buffer_group, orders)
     else:
         sample_nodes_group = None
 
