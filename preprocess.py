@@ -317,16 +317,18 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
 
 
     if not os.path.exists(fname):
+        # node original id on each device
         gpu_buffer_group = []
+        # node idx on each device
         idx_of_nodes_on_device_group = []
         device_id_of_nodes_group = []
-        if random_partition == True:
-            shuffle(train_nodes)
         if naive_partition == True:
             idx_of_nodes_on_device = np.arange(lap_matrix.shape[1])
+            if random_partition == True:
+                shuffle(idx_of_nodes_on_device)
             device_id_of_nodes = np.array([-1] * lap_matrix.shape[1])
             for i in range(num_devs):
-                buffered_nodes_on_dev_i = train_nodes[i*num_nodes_per_dev : (i+1)*num_nodes_per_dev]
+                buffered_nodes_on_dev_i = idx_of_nodes_on_device[i*num_nodes_per_dev : (i+1)*num_nodes_per_dev]
                 gpu_buffer_group.append(buffered_nodes_on_dev_i)
                 device_id_of_nodes[buffered_nodes_on_dev_i] = devices[i]
                 idx_of_nodes_on_device[buffered_nodes_on_dev_i] = np.arange(len(buffered_nodes_on_dev_i))
@@ -357,33 +359,31 @@ def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, n
                 idx_of_nodes_on_device_group = [idx_of_nodes_on_device] * num_devs
 
                 p_accum = np.array([0.0] * 2)
-
+                test = 0
                 for i in range(num_nodes_per_dev):
-
-                    if i % 2 == 0:
-                        device_order = np.argsort(p_accum)
+                    device_order = np.argsort(p_accum)
                     
-                    if i % 2 == 1:
-                        continue
-
                     candidate_node = buffered_nodes[num_nodes_per_dev + i]
-                    new_node_idx = num_nodes_per_dev - 1 - i // 2
+                    new_node_idx = num_nodes_per_dev - 1 - i 
                     node_to_be_replaced = buffered_nodes[new_node_idx]
-                    if sample_prob[candidate_node] > alpha * sample_prob[node_to_be_replaced]:
+                    if sample_prob[candidate_node] >= alpha * sample_prob[node_to_be_replaced]:
                         current_dev = device_order[0]
                         p_accum[current_dev] += sample_prob[candidate_node]
+                        test = new_node_idx
                         for j in range(num_devs):
                             # if j and current_dev are not in 00 11 22 33 02 20 13 31
                             if j % 2 != current_dev:
                                 device_id_of_nodes_group[j][candidate_node] = devices[current_dev + j // 2 * 2]
                                 idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
                             else:
+                                device_id_of_nodes_group[j][candidate_node] = devices[current_dev + j // 2 * 2]
+                                idx_of_nodes_on_device_group[j][candidate_node] = new_node_idx
                                 device_id_of_nodes_group[j][node_to_be_replaced] = devices[device_order[1] + j // 2 * 2] 
                                 gpu_buffer_group[j][new_node_idx] = candidate_node 
                     else:
                         break
-
                 change_num = i
+                print(test)
 
                 pickle.dump([change_num, p_accum, device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group], open(fname, 'wb'))
         
