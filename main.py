@@ -253,7 +253,7 @@ if __name__ == "__main__":
     orders = [int(t) for t in orders] 
 
 
-    scale_factor = 8.0
+    scale_factor = 1.0
 
     gradients = [None] * world_size
 
