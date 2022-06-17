@@ -266,7 +266,7 @@ def metis_buffering(train_nodes, lap_matrix, sample_prob, devices, feat_data, nu
         gpu_buffer_group[i] = np.argsort(-1*sample_prob[i*block_size: min((i+1)*block_size, lap_matrix.shape[0])])[:num_nodes_per_dev] + i*block_size
         for j in range(num_devs):
             device_id_of_nodes_group[j][gpu_buffer_group[i][:]] = devices[i]
-            idx_of_nodes_on_device_group[j][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
+            idx_of_nodes_on_device_group[j][gpu_buffer_group[i][:]] = range(len(idx_of_nodes_on_device_group[j][gpu_buffer_group[i][:]]))
     
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set
 
