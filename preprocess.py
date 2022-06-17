@@ -265,14 +265,14 @@ def metis_buffering(train_nodes, lap_matrix, sample_prob, devices, feat_data, nu
     for i in range(num_devs):
         gpu_buffer_group[i] = np.argsort(-1*sample_prob[i*block_size: min((i+1)*block_size, lap_matrix.shape[0])])[:num_nodes_per_dev] + i*block_size
         device_id_of_nodes_group[i][gpu_buffer_group[i][:]] = devices[i]
-        idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
+        idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]] = range(len(idx_of_nodes_on_device_group[i][gpu_buffer_group[i][:]]))
         if i % 2 == 0:
             device_id_of_nodes_group[i+1][gpu_buffer_group[i][:]] = devices[i]
-            idx_of_nodes_on_device_group[i+1][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
+            idx_of_nodes_on_device_group[i+1][gpu_buffer_group[i][:]] = range(len(idx_of_nodes_on_device_group[i+1][gpu_buffer_group[i][:]]))
         else:
             device_id_of_nodes_group[i-1][gpu_buffer_group[i][:]] = devices[i]
-            idx_of_nodes_on_device_group[i-1][gpu_buffer_group[i][:]] = range(num_nodes_per_dev)
-    
+            idx_of_nodes_on_device_group[i-1][gpu_buffer_group[i][:]] = range(len(idx_of_nodes_on_device_group[i-1][gpu_buffer_group[i][:]]))
+     
     return device_id_of_nodes_group, idx_of_nodes_on_device_group, gpu_buffer_group, train_nodes_set
 
 def create_buffer(lap_matrix, graph_data, num_nodes_per_dev, devices, dataset, num_conv_layers):
