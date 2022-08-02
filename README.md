@@ -1,5 +1,6 @@
 # Graph Data Placement Implementation
 **Rethinking graph data placement for graph neural network training on multiple GPUs**
+
 Shihui Song, Peng Jiang
 https://dl.acm.org/doi/pdf/10.1145/3524059.3532384
 
