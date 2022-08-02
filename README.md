@@ -38,6 +38,7 @@ To train models with **metis** partition on Reddit, run this command under **met
 python main.py --dataset='reddit' --cuda='0,1,2,3' --alpha 0 --batch_size 512 --epoch_num 30 --buffer_size 0.1 --model='graphsage' --sampler='ladies' --samp_num 8192 --lr 0.04
 ```
 To train models with **metis** partition on Reddit with **(2+2)GPU** configuration, run the same command under **pair_metis branch**.
+
 To train models with **methods except metis** on Reddit with **(2+2)GPU** configuration, run the same commands under **pair branch**.
 
 ## Citation
